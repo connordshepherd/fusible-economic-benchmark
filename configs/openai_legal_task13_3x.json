@@ -1,0 +1,55 @@
+{
+  "dataset_dir": "../data/APEX-v1-extended",
+  "output_dir": "../outputs/openai_legal_task13_3x",
+  "parse_cache_dir": "../.cache/reducto",
+  "selection": {
+    "domain": "Legal",
+    "task_ids": [
+      13
+    ],
+    "start_index": 0,
+    "limit": 1
+  },
+  "model": {
+    "model_id": "gpt-5.4",
+    "max_tokens": 128000,
+    "max_input_tokens": 272000,
+    "model_configs": {
+      "reasoning_effort": "high",
+      "verbosity": "medium"
+    }
+  },
+  "grader": {
+    "model_id": "gpt-5.4",
+    "temperature": 0.01,
+    "max_tokens": 65535
+  },
+  "reducto": {
+    "enabled": true,
+    "credit_price_usd": 0.015,
+    "table_output_format": "html",
+    "chunk_mode": "variable",
+    "summarize_figures": true,
+    "agentic_scopes": [],
+    "filter_blocks": [
+      "Header",
+      "Footer",
+      "Page Number"
+    ]
+  },
+  "evaluation": {
+    "runs_per_task": 3,
+    "min_overall_score_pct": 80.0,
+    "require_all_primary": true,
+    "resume": true,
+    "save_response_text": true,
+    "save_score_summary": true
+  },
+  "value_model": {
+    "overrides_csv": "legal_values.csv",
+    "default_hours": 3.5,
+    "low_rate": 100.0,
+    "base_rate": 150.0,
+    "high_rate": 250.0
+  }
+}

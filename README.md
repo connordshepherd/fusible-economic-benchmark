@@ -1,0 +1,390 @@
+# Mercor APEX Finance Eval Scaffold
+
+## Brief: what we are doing and why
+
+This repo is a practical wrapper around the **public APEX-v1-extended finance tasks**. The goal is not to reproduce Mercor’s hidden leaderboard exactly. The goal is to answer a more operational question:
+
+> For a given finance task, how often does a model succeed, what did each attempt cost, and what is the implied cost per successful completion?
+
+APEX is a strong place to start because the public release gives you realistic professional tasks, attached source files, and criterion-level rubrics. That makes it much closer to real knowledge work than a generic academic benchmark. The missing pieces, for an economics-oriented evaluation, are:
+
+1. **A task value model**  
+   APEX does not ship task-level dollar values, so this scaffold adds a CSV where you can assign `value_low`, `value_base`, and `value_high` per task.
+
+2. **Attachment parsing with explicit cost capture**  
+   Instead of letting parsing happen opaquely inside a benchmark harness, this repo parses attachments with **Reducto directly** and records pages, credits, cache hits, and dollar cost.
+
+3. **Per-attempt generation and grading cost logging**  
+   The scaffold calls provider SDKs directly for generation and rubric grading, then writes raw per-run records so you can see generation cost, grading cost, and total attempt cost.
+
+4. **A business-pass rule on top of raw APEX score**  
+   APEX natively gives criterion-level results and a percentage score. This repo adds an acceptance rule that is more useful for cost-benefit analysis:
+   - default rule: **all primary criteria must pass**
+   - and **overall score must be at least 80%**
+
+That gives you outputs that are much closer to the economics questions you care about:
+
+- pass rate by task
+- mean cost per attempt
+- mean cost of successful attempts
+- cost per success
+- expected value net of model cost
+
+In other words, this repo is meant to turn the public APEX finance slice into a small **economic utility lab**.
+
+## What this scaffold is and is not
+
+This repo **is**:
+
+- a reproducible runner for the **public** APEX-v1-extended dataset
+- focused on the **Finance** domain by default
+- designed for **cost accounting**
+- designed for **task-by-task valuation**
+- resume-friendly
+- suitable for a small pilot budget
+
+This repo **is not**:
+
+- an official Mercor leaderboard submission path
+- an exact reproduction of Mercor’s hidden holdout evaluation
+- a source of canonical task dollar values
+- a billing system of record for OpenAI, Google, or Reducto invoices
+
+## Design choices
+
+A few choices are deliberate:
+
+### Why finance first
+Finance is the cleanest fit for “economically valuable white-collar work” and lines up with common questions like valuation, analysis, memo drafting, and spreadsheet-heavy reasoning.
+
+### Why use criterion-level rubric grading
+APEX ships task rubrics with criterion descriptions, weights, and sources. Grading against those criteria directly keeps the runner transparent and makes failures easier to inspect.
+
+### Why parse with Reducto directly instead of relying on hidden internal parsing
+You said Reducto was acceptable. Parsing directly has two advantages:
+- you can see **exact Reducto credits**
+- you can **cache parsed files** and avoid paying again across repeated runs
+
+### Why add a value CSV
+APEX gives realistic work but not dollar labels. The value CSV is the bridge from “benchmark score” to “cost-benefit analysis”.
+
+### Why track both score and business pass
+A model can score 70% and still fail a client-style acceptance test. For economics, the binary pass rule is often more decision-useful than the raw score alone.
+
+## Important caveats
+
+1. **Public set only**  
+   This scaffold targets the public APEX-v1-extended release, not Mercor’s hidden leaderboard holdout.
+
+2. **Prompt parity is approximate, not guaranteed**  
+   The prompts in this repo are scaffold prompts over the public APEX tasks, not byte-for-byte copies of any private evaluation prompts.
+
+3. **Cost numbers are runner-side measurements**  
+   Generation and grading costs come from the provider SDK path. For finance-grade accounting, reconcile against provider billing exports after the run.
+
+4. **Task values are yours**  
+   This repo seeds a value file, but the final “this task is worth $X” judgment is your modeling decision.
+
+## Repo layout
+
+```text
+mercor_apex_finance_eval_scaffold/
+├── README.md
+├── pyproject.toml
+├── requirements.txt
+├── requirements-dev.txt
+├── .env.example
+├── .gitignore
+├── LICENSE
+├── configs/
+│   └── example_finance_public.json
+├── scripts/
+│   ├── bootstrap.sh
+│   └── run_example.sh
+├── src/
+│   └── mercor_apex_finance_eval/
+│       ├── __init__.py
+│       ├── __main__.py
+│       ├── business_rules.py
+│       ├── cli.py
+│       ├── config.py
+│       ├── dataset.py
+│       ├── evaluation.py
+│       ├── mercor_adapter.py
+│       ├── prompting.py
+│       ├── reducto_parser.py
+│       ├── reporting.py
+│       ├── types.py
+│       ├── utils.py
+│       ├── value_model.py
+│       └── prompts/
+│           ├── generation_system_prompt.txt
+│           ├── generation_user_prompt.txt
+│           └── grading_prompt.txt
+└── tests/
+    ├── test_business_rules.py
+    └── test_value_model.py
+```
+
+## Quickstart
+
+### 1. Create a virtualenv and install
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+### 2. Set environment variables
+
+Copy `.env.example` to `.env` and fill in the keys you need.
+
+Typical minimum for the default example:
+
+```bash
+OPENAI_API_KEY=...
+GOOGLE_API_KEY=...
+REDUCTO_API_KEY=...
+```
+
+### 3. Download the public APEX dataset
+
+```bash
+apex-finance-eval download-dataset --output-dir data/APEX-v1-extended
+```
+
+### 4. Seed a finance value file
+
+```bash
+apex-finance-eval seed-values \
+  --dataset-dir data/APEX-v1-extended \
+  --domain Finance \
+  --output configs/finance_values.csv
+```
+
+This creates a CSV you can edit by hand.
+
+### 5. Inspect the finance tasks
+
+```bash
+apex-finance-eval list-tasks \
+  --dataset-dir data/APEX-v1-extended \
+  --domain Finance \
+  --values-csv configs/finance_values.csv
+```
+
+Use this step to decide which tasks to run first.
+
+If you want a fuller structural map of the dataset before choosing tasks, export one:
+
+```bash
+apex-finance-eval map-tasks \
+  --dataset-dir data/APEX-v1-extended \
+  --output outputs/task_map.csv
+```
+
+That writes one row per task with domain, attachment count, combined attachment size, prompt length, and rubric structure so you can sort for likely easy or hard cases.
+
+### 6. Run a small pilot
+
+```bash
+apex-finance-eval run \
+  --config configs/example_finance_public.json \
+  --limit 3
+```
+
+That will:
+- load the public finance tasks
+- parse attachments with Reducto
+- call the configured model directly
+- grade with the judge model
+- write raw JSONL logs
+- write summary CSV / JSON / Markdown reports
+
+## Recommended pilot workflow for a small budget
+
+For a first pass, I would do this:
+
+1. seed the finance values file
+2. pick 3 tasks
+3. run 2 repeats per task
+4. inspect raw responses and grade details
+5. adjust value estimates or prompts if needed
+6. scale to 8 repeats only after the setup looks sane
+
+The bundled example config uses a small repeat count on purpose. It is meant to be safe for a calibration run.
+
+## How task value works
+
+`configs/finance_values.csv` is where you assign per-task value estimates.
+
+Columns:
+
+- `task_id`
+- `domain`
+- `attachment_count`
+- `prompt_preview`
+- `hours_estimate`
+- `value_low_usd`
+- `value_base_usd`
+- `value_high_usd`
+- `notes`
+
+The seed command fills the value columns from a simple default:
+
+- low = hours × low rate
+- base = hours × base rate
+- high = hours × high rate
+
+You should edit those numbers after reading the actual tasks.
+
+## What counts as success
+
+By default a run is marked `business_pass = true` only if:
+
+- every **primary** criterion passes
+- and the overall rubric percentage is at least **80**
+
+You can change this in the config.
+
+## Output files
+
+A run writes artifacts into the configured output directory.
+
+Main files:
+
+- `run_manifest.json`  
+  The resolved config and selected task metadata.
+
+- `selected_tasks.csv`  
+  The actual task set used for the run.
+
+- `raw_runs.jsonl`  
+  One JSON record per attempt.
+
+- `task_summary.csv`  
+  One row per task with pass rate and cost metrics.
+
+- `overall_summary.json`  
+  Aggregate metrics for the full run.
+
+- `report.md`  
+  A quick human-readable report.
+
+## The metrics this repo computes
+
+Per task:
+
+- attempts
+- completed runs
+- business passes
+- pass rate
+- mean score
+- mean generation cost per attempt
+- mean grading cost per attempt
+- total parse cost
+- mean total cost per attempt
+- mean cost of successful attempts
+- cost per success
+- expected net value using low / base / high value estimates
+
+The most decision-useful number is usually:
+
+```text
+cost_per_success_usd = total_cost_across_attempts / number_of_business_passes
+```
+
+## Commands
+
+### Download dataset
+
+```bash
+apex-finance-eval download-dataset --output-dir data/APEX-v1-extended
+```
+
+### Seed value CSV
+
+```bash
+apex-finance-eval seed-values \
+  --dataset-dir data/APEX-v1-extended \
+  --domain Finance \
+  --output configs/finance_values.csv
+```
+
+### List candidate tasks
+
+```bash
+apex-finance-eval list-tasks \
+  --dataset-dir data/APEX-v1-extended \
+  --domain Finance \
+  --values-csv configs/finance_values.csv
+```
+
+### Export a task map
+
+```bash
+apex-finance-eval map-tasks \
+  --dataset-dir data/APEX-v1-extended \
+  --output outputs/task_map.csv
+```
+
+Useful columns include `attachment_count`, `attachment_total_bytes`, `largest_attachment_bytes`, `prompt_char_count`, `criterion_count`, `primary_criteria_count`, and `secondary_criteria_count`.
+
+### Run an evaluation
+
+```bash
+apex-finance-eval run --config configs/example_finance_public.json
+```
+
+Optional overrides:
+
+```bash
+apex-finance-eval run \
+  --config configs/example_finance_public.json \
+  --task-ids 101 102 103 \
+  --limit 3 \
+  --output-dir outputs/pilot_three_tasks
+```
+
+### Rebuild summaries from raw JSONL
+
+```bash
+apex-finance-eval summarize \
+  --run-jsonl outputs/pilot_three_tasks/raw_runs.jsonl \
+  --output-dir outputs/pilot_three_tasks
+```
+
+## Notes on “what I paid”
+
+This scaffold tracks three cost buckets:
+
+1. **Parsing cost**  
+   Reducto credits × configured dollar-per-credit rate.
+
+2. **Generation cost**  
+   Estimated from provider token usage returned by the SDK.
+
+3. **Grading cost**  
+   Estimated from provider token usage returned by the SDK.
+
+That is enough for experiment accounting. If you need exact invoice reconciliation, export billing data from your provider(s) after the run and compare it to the runner totals.
+
+## If you want to be closer to the public APEX setup
+
+Change the config to something like:
+
+- domain = Finance
+- runs per task = 8
+- judge model = `gemini-2.5-pro`
+
+That still won’t make the run equivalent to any hidden leaderboard, but it gets closer to the public APEX setup.
+
+## References
+
+- Mercor public APEX dataset: https://huggingface.co/datasets/mercor/APEX-v1-extended
+- Mercor public APEX leaderboard page: https://www.mercor.com/apex/apex-v1-leaderboard/
+- Reducto Python SDK overview: https://docs.reducto.ai/sdk/python/overview
+- Reducto parse docs: https://docs.reducto.ai/sdk/python/parse
+- Reducto credit usage docs: https://docs.reducto.ai/reference/credit-usage

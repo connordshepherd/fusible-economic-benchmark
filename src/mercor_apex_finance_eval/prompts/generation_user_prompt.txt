@@ -1,0 +1,7 @@
+Task domain: $domain
+
+Task:
+$task_prompt
+
+Attachments:
+$attachments

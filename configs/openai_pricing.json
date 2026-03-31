@@ -1,0 +1,20 @@
+{
+  "price_book_id": "openai_api_pricing_2026-03-30",
+  "models": {
+    "gpt-5.4": {
+      "input_per_1m_usd": 2.5,
+      "cached_input_per_1m_usd": 0.25,
+      "output_per_1m_usd": 15.0
+    },
+    "gpt-5.4-mini": {
+      "input_per_1m_usd": 0.75,
+      "cached_input_per_1m_usd": 0.075,
+      "output_per_1m_usd": 4.5
+    },
+    "gpt-5.4-nano": {
+      "input_per_1m_usd": 0.2,
+      "cached_input_per_1m_usd": 0.02,
+      "output_per_1m_usd": 1.25
+    }
+  }
+}

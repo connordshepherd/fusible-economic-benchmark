@@ -1,0 +1,18 @@
+You are grading a model-generated response against one criterion.
+
+Criterion to evaluate:
+{criterion_description}
+
+Response to evaluate:
+{solution}
+
+Instructions:
+1. Decide whether the response fully satisfies the criterion.
+2. Return result = 1 if it satisfies the criterion, or result = 0 if it does not.
+3. Give a concise reason that points to specific evidence from the response.
+
+Return JSON only, in exactly this shape:
+{{
+  "result": <1 or 0>,
+  "reason": "<brief explanation>"
+}}

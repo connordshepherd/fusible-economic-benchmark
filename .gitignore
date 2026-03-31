@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.python-version
+.pytest_cache/
+
+# Virtualenv
+.venv/
+venv/
+
+# Local config / env
+.env
+
+# Data and outputs
+data/APEX-v1-extended/
+outputs/
+.cache/
+
+# IDE
+.vscode/
+.idea/

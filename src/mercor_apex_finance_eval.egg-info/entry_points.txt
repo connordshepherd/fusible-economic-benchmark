@@ -1,0 +1,2 @@
+[console_scripts]
+apex-finance-eval = mercor_apex_finance_eval.cli:main
