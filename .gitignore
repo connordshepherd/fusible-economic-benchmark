@@ -12,6 +12,7 @@ venv/
 
 # Local config / env
 .env
+.env.local
 
 # Data and outputs
 data/APEX-v1-extended/
