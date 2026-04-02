@@ -5,6 +5,18 @@ from mercor_apex_finance_eval.task_map import build_task_map_rows, write_task_ma
 from mercor_apex_finance_eval.types import TaskRecord
 
 
+def _write_task_metadata(path, rows):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=["task_id", "domain", "job", "task_description", "success_criteria"],
+        )
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(row)
+
+
 def test_build_task_map_rows_captures_prompt_attachment_and_rubric_metrics(tmp_path):
     dataset_dir = tmp_path / "dataset"
     docs_dir = dataset_dir / "documents" / "1"
@@ -44,6 +56,9 @@ def test_build_task_map_rows_captures_prompt_attachment_and_rubric_metrics(tmp_p
     assert len(rows) == 1
     row = rows[0]
     assert row["task_id"] == 1
+    assert row["job"] == ""
+    assert row["task_description"] == "Analyze the capital structure and summarize risks."
+    assert row["success_criteria"] == ""
     assert row["attachment_count"] == 2
     assert row["attachment_total_bytes"] == len(csv_bytes) + len(pdf_bytes)
     assert row["largest_attachment_bytes"] == max(len(csv_bytes), len(pdf_bytes))
@@ -58,11 +73,48 @@ def test_build_task_map_rows_captures_prompt_attachment_and_rubric_metrics(tmp_p
     assert row["criterion_types"] == "Reasoning;Extraction;Writing"
 
 
+def test_build_task_map_rows_applies_authored_metadata_overrides(tmp_path):
+    dataset_dir = tmp_path / "dataset"
+    docs_dir = dataset_dir / "documents" / "7"
+    docs_dir.mkdir(parents=True)
+    (docs_dir / "facts.pdf").write_bytes(b"%PDF-1.4 sample")
+    task_metadata_path = tmp_path / "task_metadata.csv"
+    _write_task_metadata(
+        task_metadata_path,
+        [
+            {
+                "task_id": 7,
+                "domain": "Legal",
+                "job": "Junior Legal Associate",
+                "task_description": "Review a client dispute and write a concise legal memo using the attached complaint and statute.",
+                "success_criteria": "Identify the controlling rule, apply it to the facts, and support the answer with the supplied authority.",
+            }
+        ],
+    )
+
+    task = TaskRecord(
+        task_id=7,
+        domain="Legal",
+        prompt="Original prompt text that should not survive once authored metadata exists.",
+        rubric_json=json.dumps({}),
+        attachment_paths=["documents/7/facts.pdf"],
+    )
+
+    rows = build_task_map_rows(dataset_dir, [task], task_metadata_path=task_metadata_path)
+
+    assert rows[0]["job"] == "Junior Legal Associate"
+    assert rows[0]["task_description"].startswith("Review a client dispute")
+    assert rows[0]["success_criteria"].startswith("Identify the controlling rule")
+
+
 def test_write_task_map_supports_csv_and_json(tmp_path):
     rows = [
         {
             "task_id": 1,
             "domain": "Finance",
+            "job": "Junior Credit Analyst",
+            "task_description": "Analyze this company in plaintext.",
+            "success_criteria": "Compute the requested values and explain the conclusion.",
             "attachment_count": 1,
             "attachment_total_bytes": 12,
             "attachment_total_mb": 0.000011,
@@ -76,7 +128,6 @@ def test_write_task_map_supports_csv_and_json(tmp_path):
             "secondary_criteria_count": 3,
             "criteria_with_sources_count": 1,
             "criterion_types": "Reasoning",
-            "prompt_preview": "Analyze this company.",
         }
     ]
 

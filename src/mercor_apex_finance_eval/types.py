@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from .utils import compact_text
+
 
 @dataclass(slots=True)
 class TaskRecord:
@@ -17,8 +19,12 @@ class TaskRecord:
         return len(self.attachment_paths)
 
     @property
+    def task_description(self) -> str:
+        return compact_text(self.prompt)
+
+    @property
     def prompt_preview(self) -> str:
-        text = " ".join(self.prompt.split())
+        text = self.task_description
         return text[:160] + ("…" if len(text) > 160 else "")
 
 

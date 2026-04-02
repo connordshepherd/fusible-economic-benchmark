@@ -4,15 +4,21 @@ import csv
 from pathlib import Path
 
 from .dataset import filter_tasks, load_tasks
+from .task_map import build_task_map_rows
 from .types import TaskRecord, ValueEstimate
-from .utils import shorten
 
 
 VALUE_FIELDS = [
     "task_id",
     "domain",
+    "task_description",
     "attachment_count",
-    "prompt_preview",
+    "attachment_total_bytes",
+    "attachment_total_mb",
+    "largest_attachment_bytes",
+    "criterion_count",
+    "primary_criteria_count",
+    "secondary_criteria_count",
     "hours_estimate",
     "value_low_usd",
     "value_base_usd",
@@ -26,6 +32,7 @@ def seed_value_file(
     dataset_dir: str | Path,
     output_csv: str | Path,
     domain: str,
+    task_metadata_path: str | Path | None = None,
     default_hours: float,
     low_rate: float,
     base_rate: float,
@@ -37,18 +44,29 @@ def seed_value_file(
         raise FileExistsError(f"{output_csv} already exists. Use --force to overwrite.")
 
     tasks = filter_tasks(load_tasks(dataset_dir), domain=domain)
+    task_map_rows = {
+        int(row["task_id"]): row
+        for row in build_task_map_rows(dataset_dir, tasks, task_metadata_path=task_metadata_path)
+    }
     output_csv.parent.mkdir(parents=True, exist_ok=True)
 
     with output_csv.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=VALUE_FIELDS)
         writer.writeheader()
         for task in tasks:
+            task_map_row = task_map_rows.get(task.task_id, {})
             writer.writerow(
                 {
                     "task_id": task.task_id,
                     "domain": task.domain,
-                    "attachment_count": task.attachment_count,
-                    "prompt_preview": shorten(task.prompt, 160),
+                    "task_description": str(task_map_row.get("task_description", task.task_description) or task.task_description),
+                    "attachment_count": int(task_map_row.get("attachment_count", task.attachment_count) or 0),
+                    "attachment_total_bytes": int(task_map_row.get("attachment_total_bytes", 0) or 0),
+                    "attachment_total_mb": float(task_map_row.get("attachment_total_mb", 0.0) or 0.0),
+                    "largest_attachment_bytes": int(task_map_row.get("largest_attachment_bytes", 0) or 0),
+                    "criterion_count": int(task_map_row.get("criterion_count", 0) or 0),
+                    "primary_criteria_count": int(task_map_row.get("primary_criteria_count", 0) or 0),
+                    "secondary_criteria_count": int(task_map_row.get("secondary_criteria_count", 0) or 0),
                     "hours_estimate": f"{default_hours:.2f}",
                     "value_low_usd": f"{default_hours * low_rate:.2f}",
                     "value_base_usd": f"{default_hours * base_rate:.2f}",

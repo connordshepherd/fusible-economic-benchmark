@@ -2,16 +2,20 @@
 
 ## Overall
 
-- Tracked task setups: **3**
-- Promoted attempts: **9**
+- Tracked task setups: **5**
+- Promoted attempts: **15**
 - Business passes: **0**
 - Overall pass rate: **0.0000**
-- Mean total cost per attempt: **$2.193307**
+- Mean total cost per attempt: **$0.526041**
+- Mean generation steps per attempt: **14.93**
+- Tools used: **read_file; find_in_files; write_file; list_files; python_exec**
 
 ## Task Setups
 
-| Task | Model | Reasoning | Runs | Pass rate | Cost/success | Value base | Expected net/base |
-|---:|---|---|---:|---:|---:|---:|---:|
-| 13 | gpt-5.4 | medium | 3 | 0.0000 | — | $525.00 | $-0.383331 |
-| 1041 | gpt-5.4 | medium | 3 | 0.0000 | — | $525.00 | $-5.790443 |
-| 1230 | gpt-5.4 | medium | 3 | 0.0000 | — | $525.00 | $-0.406148 |
+| Task | Model | Reasoning | Runs | Mean steps | Pass rate | Cost/success | Value base | Tools used |
+|---:|---|---|---:|---:|---:|---:|---:|---|
+| 13 | gpt-5.4 | medium | 3 | 11.67 | 0.0000 | — | $525.00 | read_file; find_in_files; write_file; list_files |
+| 13 | gpt-5.4 | xhigh | 3 | 19.67 | 0.0000 | — | $525.00 | list_files; read_file; find_in_files; write_file; python_exec |
+| 1041 | gpt-5.4 | medium | 3 | 18.33 | 0.0000 | — | $525.00 | read_file; find_in_files; write_file; list_files |
+| 1230 | gpt-5.4 | medium | 3 | 9.33 | 0.0000 | — | $525.00 | list_files; read_file; find_in_files; write_file |
+| 1230 | gpt-5.4 | xhigh | 3 | 15.67 | 0.0000 | — | $525.00 | list_files; read_file; find_in_files; write_file |

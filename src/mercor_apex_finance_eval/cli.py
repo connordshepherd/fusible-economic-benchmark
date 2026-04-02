@@ -10,26 +10,30 @@ from huggingface_hub import snapshot_download
 from .config import apply_overrides, load_config
 from .dataset import filter_tasks, load_tasks
 from .evaluation import run_sync
+from .neon_publish import publish_tracker_to_postgres
+from .python_exec_smoke import run_python_exec_smoke
 from .reporting import rebuild_outputs
-from .task_map import generate_task_map, write_task_map
+from .task_map import build_task_map_rows, generate_task_map, write_task_map
 from .tracker import promote_run, rebuild_tracker
 from .utils import shorten
 from .value_model import load_value_overrides, resolve_value_for_task, seed_value_file
 
 
 def _print_task_table(rows: list[dict]) -> None:
-    headers = ["task_id", "attachments", "value_base", "prompt_preview"]
+    headers = ["task_id", "attachments", "input_mb", "value_base", "task_description"]
     widths = {
         "task_id": 8,
         "attachments": 11,
+        "input_mb": 10,
         "value_base": 12,
-        "prompt_preview": 80,
+        "task_description": 80,
     }
     header_line = (
         f"{'task_id':<{widths['task_id']}} "
         f"{'attachments':<{widths['attachments']}} "
+        f"{'input_mb':<{widths['input_mb']}} "
         f"{'value_base':<{widths['value_base']}} "
-        f"{'prompt_preview':<{widths['prompt_preview']}}"
+        f"{'task_description':<{widths['task_description']}}"
     )
     print(header_line)
     print("-" * len(header_line))
@@ -37,8 +41,9 @@ def _print_task_table(rows: list[dict]) -> None:
         print(
             f"{str(row['task_id']):<{widths['task_id']}} "
             f"{str(row['attachment_count']):<{widths['attachments']}} "
+            f"{format(float(row['attachment_total_mb']), '.3f'):<{widths['input_mb']}} "
             f"{('$' + format(row['value_base_usd'], '.2f')):<{widths['value_base']}} "
-            f"{shorten(row['prompt_preview'], widths['prompt_preview'])}"
+            f"{shorten(row['task_description'], widths['task_description'])}"
         )
 
 
@@ -60,6 +65,7 @@ def cmd_seed_values(args: argparse.Namespace) -> int:
         dataset_dir=args.dataset_dir,
         output_csv=args.output,
         domain=args.domain,
+        task_metadata_path=args.task_metadata_csv,
         default_hours=args.default_hours,
         low_rate=args.low_rate,
         base_rate=args.base_rate,
@@ -72,6 +78,10 @@ def cmd_seed_values(args: argparse.Namespace) -> int:
 
 def cmd_list_tasks(args: argparse.Namespace) -> int:
     tasks = filter_tasks(load_tasks(args.dataset_dir), domain=args.domain, start_index=args.start_index, limit=args.limit)
+    task_map_rows = {
+        int(row["task_id"]): row
+        for row in build_task_map_rows(args.dataset_dir, tasks, task_metadata_path=args.task_metadata_csv)
+    }
     overrides = load_value_overrides(args.values_csv) if args.values_csv else {}
     rows = []
     for task in tasks:
@@ -83,12 +93,14 @@ def cmd_list_tasks(args: argparse.Namespace) -> int:
             base_rate=args.base_rate,
             high_rate=args.high_rate,
         )
+        task_map_row = task_map_rows.get(task.task_id, {})
         rows.append(
             {
                 "task_id": task.task_id,
-                "attachment_count": task.attachment_count,
+                "attachment_count": int(task_map_row.get("attachment_count", task.attachment_count) or 0),
+                "attachment_total_mb": float(task_map_row.get("attachment_total_mb", 0.0) or 0.0),
                 "value_base_usd": value.value_base_usd,
-                "prompt_preview": task.prompt_preview,
+                "task_description": str(task_map_row.get("task_description", task.task_description) or task.task_description),
             }
         )
     _print_task_table(rows)
@@ -107,6 +119,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             config.tracking.outputs_root,
             config.tracking.tracker_dir,
             price_book_path=config.pricing.openai_price_book,
+            task_metadata_path=config.tracking.task_metadata_csv,
         )
     print(f"Run complete. Outputs written to {config.output_dir}")
     return 0
@@ -124,6 +137,7 @@ def cmd_map_tasks(args: argparse.Namespace) -> int:
     task_ids = [int(value) for value in args.task_ids] if args.task_ids else None
     rows = generate_task_map(
         args.dataset_dir,
+        task_metadata_path=args.task_metadata_csv,
         domain=args.domain,
         task_ids=task_ids,
         start_index=args.start_index,
@@ -150,6 +164,7 @@ def cmd_rebuild_tracker(args: argparse.Namespace) -> int:
         args.outputs_root,
         args.tracker_dir,
         price_book_path=args.openai_price_book,
+        task_metadata_path=args.task_metadata_csv,
     )
     print(f"Discovered attempts: {summary['discovered_attempts']}")
     print(f"Promoted attempts: {summary['promoted_attempts']}")
@@ -171,12 +186,50 @@ def cmd_promote_run(args: argparse.Namespace) -> int:
         headline=bool(args.headline),
         outputs_root=args.outputs_root,
         price_book_path=args.openai_price_book,
+        task_metadata_path=args.task_metadata_csv,
     )
     print(f"Promoted attempts: {selected_count}")
     print(f"Discovered attempts: {summary['discovered_attempts']}")
     print(f"Promoted attempts in tracker: {summary['promoted_attempts']}")
     print(f"Tracked task setups: {summary['tracked_task_setups']}")
     return 0
+
+
+def cmd_publish_neon(args: argparse.Namespace) -> int:
+    load_dotenv()
+    load_dotenv(".env.local", override=False)
+    summary = publish_tracker_to_postgres(
+        tracker_dir=args.tracker_dir,
+        database_url=args.database_url,
+        schema=args.schema,
+    )
+    print(f"Published schema: {summary['schema']}")
+    print(f"Task setups: {summary['task_setups']}")
+    print(f"Promoted attempts: {summary['promoted_attempts']}")
+    print(f"Tracker source: {summary['tracker_dir']}")
+    print(f"Database URL source: {summary['database_url_env_used']}")
+    return 0
+
+
+def cmd_smoke_python_exec(args: argparse.Namespace) -> int:
+    load_dotenv()
+    load_dotenv(".env.local", override=False)
+    config = load_config(args.config)
+    if args.output_dir:
+        config.output_dir = Path(args.output_dir).resolve()
+    result = run_python_exec_smoke(
+        config,
+        output_dir=config.output_dir,
+        row_count=args.row_count,
+    )
+    summary = result["smoke_summary"]
+    print(f"Smoke output: {config.output_dir}")
+    print(f"Generation success: {summary['generation_success']}")
+    print(f"Python exec called: {summary['python_exec_called']}")
+    print(f"Python exec success: {summary['python_exec_success']}")
+    print(f"Exact match: {summary['exact_match']}")
+    print(f"Smoke passed: {summary['smoke_passed']}")
+    return 0 if summary["smoke_passed"] else 1
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -196,6 +249,7 @@ def build_parser() -> argparse.ArgumentParser:
     seed.add_argument("--low-rate", type=float, default=100.0)
     seed.add_argument("--base-rate", type=float, default=150.0)
     seed.add_argument("--high-rate", type=float, default=250.0)
+    seed.add_argument("--task-metadata-csv", default="configs/task_metadata.csv")
     seed.add_argument("--force", action="store_true")
     seed.set_defaults(func=cmd_seed_values)
 
@@ -209,6 +263,7 @@ def build_parser() -> argparse.ArgumentParser:
     list_tasks.add_argument("--low-rate", type=float, default=100.0)
     list_tasks.add_argument("--base-rate", type=float, default=150.0)
     list_tasks.add_argument("--high-rate", type=float, default=250.0)
+    list_tasks.add_argument("--task-metadata-csv", default="configs/task_metadata.csv")
     list_tasks.set_defaults(func=cmd_list_tasks)
 
     run = subparsers.add_parser("run", help="Run the evaluation.")
@@ -233,6 +288,7 @@ def build_parser() -> argparse.ArgumentParser:
     map_tasks.add_argument("--sort-by", default="task_id")
     map_tasks.add_argument("--descending", action="store_true")
     map_tasks.add_argument("--format", choices=["csv", "json", "jsonl"], default=None)
+    map_tasks.add_argument("--task-metadata-csv", default="configs/task_metadata.csv")
     map_tasks.set_defaults(func=cmd_map_tasks)
 
     rebuild_tracker_parser = subparsers.add_parser(
@@ -242,6 +298,7 @@ def build_parser() -> argparse.ArgumentParser:
     rebuild_tracker_parser.add_argument("--outputs-root", default="outputs")
     rebuild_tracker_parser.add_argument("--tracker-dir", default="tracker")
     rebuild_tracker_parser.add_argument("--openai-price-book", default="configs/openai_pricing.json")
+    rebuild_tracker_parser.add_argument("--task-metadata-csv", default="configs/task_metadata.csv")
     rebuild_tracker_parser.set_defaults(func=cmd_rebuild_tracker)
 
     promote = subparsers.add_parser(
@@ -259,7 +316,26 @@ def build_parser() -> argparse.ArgumentParser:
     promote.add_argument("--outputs-root", default="outputs")
     promote.add_argument("--tracker-dir", default="tracker")
     promote.add_argument("--openai-price-book", default="configs/openai_pricing.json")
+    promote.add_argument("--task-metadata-csv", default="configs/task_metadata.csv")
     promote.set_defaults(func=cmd_promote_run)
+
+    publish_neon = subparsers.add_parser(
+        "publish-neon",
+        help="Publish promoted tracker data into a Postgres/Neon schema.",
+    )
+    publish_neon.add_argument("--tracker-dir", default="tracker")
+    publish_neon.add_argument("--database-url", default=None)
+    publish_neon.add_argument("--schema", default="evals")
+    publish_neon.set_defaults(func=cmd_publish_neon)
+
+    smoke_python = subparsers.add_parser(
+        "smoke-python-exec",
+        help="Run a synthetic smoke test that requires python_exec.",
+    )
+    smoke_python.add_argument("--config", required=True)
+    smoke_python.add_argument("--output-dir", default=None)
+    smoke_python.add_argument("--row-count", type=int, default=6000)
+    smoke_python.set_defaults(func=cmd_smoke_python_exec)
 
     return parser
 

@@ -1,8 +1,8 @@
-# Mercor APEX Finance Eval Scaffold
+# Mercor APEX Eval Harness
 
 ## Brief: what we are doing and why
 
-This repo is a practical wrapper around the **public APEX-v1-extended finance tasks**. The goal is not to reproduce Mercor’s hidden leaderboard exactly. The goal is to answer a more operational question:
+This repo is a practical wrapper around the **public APEX-v1-extended tasks**. Finance is still the default path in a few commands and file names, but the harness now supports the public Finance, Legal, Medicine, and Consulting slices. The goal is not to reproduce Mercor’s hidden leaderboard exactly. The goal is to answer a more operational question:
 
 > For a given finance task, how often does a model succeed, what did each attempt cost, and what is the implied cost per successful completion?
 
@@ -30,7 +30,7 @@ That gives you outputs that are much closer to the economics questions you care 
 - cost per success
 - expected value net of model cost
 
-In other words, this repo is meant to turn the public APEX finance slice into a small **economic utility lab**.
+In other words, this repo is meant to turn the public APEX dataset into a small **economic utility lab**.
 
 ## What this scaffold is and is not
 
@@ -55,7 +55,7 @@ This repo **is not**:
 A few choices are deliberate:
 
 ### Why finance first
-Finance is the cleanest fit for “economically valuable white-collar work” and lines up with common questions like valuation, analysis, memo drafting, and spreadsheet-heavy reasoning.
+Finance was the cleanest starting point for “economically valuable white-collar work,” but the current harness and tracker now support all four public APEX domains.
 
 ### Why use criterion-level rubric grading
 APEX ships task rubrics with criterion descriptions, weights, and sources. Grading against those criteria directly keeps the runner transparent and makes failures easier to inspect.
@@ -85,45 +85,47 @@ A model can score 70% and still fail a client-style acceptance test. For economi
 4. **Task values are yours**  
    This repo seeds a value file, but the final “this task is worth $X” judgment is your modeling decision.
 
+## Canonical Docs
+
+- [Methodology](docs/methodology.md)
+- [About Our Harness](docs/about-our-harness.md)
+- [Site Architecture Plan](docs/site-architecture-plan.md)
+- [Methodology Sync Plan](docs/methodology-sync-plan.md)
+
+The README is the quick operator guide. The two docs above are the best place to look for the current publication methodology and the exact tool surface the model sees.
+
 ## Repo layout
 
 ```text
-mercor_apex_finance_eval_scaffold/
+economic-evals/
 ├── README.md
-├── pyproject.toml
-├── requirements.txt
-├── requirements-dev.txt
-├── .env.example
-├── .gitignore
-├── LICENSE
 ├── configs/
-│   └── example_finance_public.json
-├── scripts/
-│   ├── bootstrap.sh
-│   └── run_example.sh
+├── docs/
+├── outputs/
+├── tracker/
 ├── src/
 │   └── mercor_apex_finance_eval/
-│       ├── __init__.py
-│       ├── __main__.py
-│       ├── business_rules.py
 │       ├── cli.py
 │       ├── config.py
 │       ├── dataset.py
+│       ├── daytona_backend.py
 │       ├── evaluation.py
 │       ├── mercor_adapter.py
+│       ├── neon_publish.py
+│       ├── python_exec_smoke.py
 │       ├── prompting.py
 │       ├── reducto_parser.py
 │       ├── reporting.py
+│       ├── task_map.py
+│       ├── task_metadata.py
+│       ├── tool_agent.py
+│       ├── tracker.py
 │       ├── types.py
 │       ├── utils.py
 │       ├── value_model.py
 │       └── prompts/
-│           ├── generation_system_prompt.txt
-│           ├── generation_user_prompt.txt
-│           └── grading_prompt.txt
-└── tests/
-    ├── test_business_rules.py
-    └── test_value_model.py
+├── tests/
+└── data/
 ```
 
 ## Quickstart
@@ -166,7 +168,7 @@ apex-finance-eval seed-values \
 
 This creates a CSV you can edit by hand.
 
-### 5. Inspect the finance tasks
+### 5. Inspect the tasks
 
 ```bash
 apex-finance-eval list-tasks \
@@ -196,12 +198,25 @@ apex-finance-eval run \
 ```
 
 That will:
-- load the public finance tasks
+- load the selected public APEX tasks
 - parse attachments with Reducto
+- build the local tool workspace
 - call the configured model directly
 - grade with the judge model
 - write raw JSONL logs
 - write summary CSV / JSON / Markdown reports
+
+## About the current harness
+
+The current published path is `tool_assisted_daytona`.
+
+That means:
+
+- the agent loop runs locally in this repo
+- local tools handle file listing, reading, writing, searching, and excerpt retrieval
+- Daytona is only used when the model explicitly calls `python_exec`
+
+For the exact tool surface and workspace layout, see [About Our Harness](docs/about-our-harness.md).
 
 ## Recommended pilot workflow for a small budget
 
@@ -224,8 +239,14 @@ Columns:
 
 - `task_id`
 - `domain`
+- `task_description`
 - `attachment_count`
-- `prompt_preview`
+- `attachment_total_bytes`
+- `attachment_total_mb`
+- `largest_attachment_bytes`
+- `criterion_count`
+- `primary_criteria_count`
+- `secondary_criteria_count`
 - `hours_estimate`
 - `value_low_usd`
 - `value_base_usd`
@@ -239,6 +260,143 @@ The seed command fills the value columns from a simple default:
 - high = hours × high rate
 
 You should edit those numbers after reading the actual tasks.
+
+## Hand-authored task metadata
+
+`configs/task_metadata.csv` is where you curate the human-facing task metadata used by the tracker and site.
+
+Columns:
+
+- `task_id`
+- `domain`
+- `job`
+- `task_description`
+- `success_criteria`
+
+`task_description` should be a short 2-3 sentence explanation of what the work is and what inputs matter. `success_criteria` should be a short 2-3 sentence explanation of what the grader is rewarding. `job` is a best-guess real-world role label such as `Junior Litigation Associate` or `Junior Credit Analyst`.
+
+## Data Shape
+
+There are three important layers of data in this repo.
+
+### 1. Source task metadata
+
+The public APEX source gives one task row with prompt, rubric JSON, and attachment paths. `map-tasks` enriches that with structural fields such as:
+
+- `attachment_count`
+- `attachment_total_bytes`
+- `attachment_total_mb`
+- `largest_attachment_bytes`
+- `attachment_extensions`
+- `attachment_paths`
+- `prompt_char_count`
+- `prompt_word_count`
+- `criterion_count`
+- `primary_criteria_count`
+- `secondary_criteria_count`
+- `criteria_with_sources_count`
+- `criterion_types`
+- hand-authored `job`, `task_description`, and `success_criteria`
+
+### 2. Attempt-level data
+
+`raw_runs.jsonl` stores one row per attempt. For tool-assisted runs that row is enriched with:
+
+- reasoning effort and verbosity
+- token usage
+- current rerated costs
+- prompt fingerprints
+- generation steps used
+- tools used
+- runtime artifact paths
+
+### 3. Curated tracker data
+
+The tracker separates experiment logging from publication:
+
+- `tracker/discovered_attempts.csv`
+- `tracker/promotions.csv`
+- `tracker/promoted_attempts.csv`
+- `tracker/master_tracker.csv`
+- `tracker/master_tracker_overall.json`
+
+The published Neon schema is derived from promoted tracker rows only.
+
+## How Daytona works here
+
+Daytona is only the backend for `python_exec`.
+
+The agent does not read files from Daytona or live there full time. Instead:
+
+1. the harness builds a local workspace
+2. the model uses local file tools by default
+3. if it calls `python_exec`, the harness syncs the workspace into Daytona
+4. the generated script runs there
+5. `/workspace/output` is synced back locally
+
+This setup keeps legal/document-heavy tasks lightweight while still allowing real Python execution for spreadsheet-style or data-heavy tasks.
+
+The current Python package set is:
+
+- `pandas`
+- `numpy`
+- `openpyxl`
+- `pyarrow`
+- `duckdb`
+- `pypdf`
+- `pdfplumber`
+- `python-docx`
+- `beautifulsoup4`
+- `lxml`
+- `rapidfuzz`
+
+We also keep a synthetic `smoke-python-exec` command to validate the end-to-end Daytona path.
+
+```bash
+PYTHONPATH=src .venv/bin/python -m mercor_apex_finance_eval.cli smoke-python-exec \
+  --config configs/openai_daytona_python_exec_smoke_20260401.json
+```
+
+## Promotion process
+
+Promotion is manual by design.
+
+We do not publish every experiment run. The intended workflow is:
+
+1. run evals
+2. inspect `raw_runs.jsonl`, summaries, and tool traces
+3. promote only the attempts you want to count publicly
+4. rebuild the curated tracker
+5. publish the curated tracker to Neon
+
+The main commands are:
+
+```bash
+apex-finance-eval rebuild-tracker \
+  --outputs-root outputs \
+  --tracker-dir tracker \
+  --openai-price-book configs/openai_pricing.json \
+  --task-metadata-csv configs/task_metadata.csv
+```
+
+```bash
+apex-finance-eval promote-run \
+  --output-dir outputs/<run_dir> \
+  --label <label> \
+  --headline \
+  --outputs-root outputs \
+  --tracker-dir tracker \
+  --openai-price-book configs/openai_pricing.json \
+  --task-metadata-csv configs/task_metadata.csv
+```
+
+```bash
+apex-finance-eval publish-neon \
+  --tracker-dir tracker \
+  --schema evals
+```
+
+`discovered_attempts` is the experiment log. `promotions.csv` is the editorial layer. `master_tracker` and Neon are the published view.
 
 ## What counts as success
 
@@ -310,6 +468,7 @@ apex-finance-eval download-dataset --output-dir data/APEX-v1-extended
 apex-finance-eval seed-values \
   --dataset-dir data/APEX-v1-extended \
   --domain Finance \
+  --task-metadata-csv configs/task_metadata.csv \
   --output configs/finance_values.csv
 ```
 
@@ -319,6 +478,7 @@ apex-finance-eval seed-values \
 apex-finance-eval list-tasks \
   --dataset-dir data/APEX-v1-extended \
   --domain Finance \
+  --task-metadata-csv configs/task_metadata.csv \
   --values-csv configs/finance_values.csv
 ```
 
@@ -327,10 +487,26 @@ apex-finance-eval list-tasks \
 ```bash
 apex-finance-eval map-tasks \
   --dataset-dir data/APEX-v1-extended \
+  --task-metadata-csv configs/task_metadata.csv \
   --output outputs/task_map.csv
 ```
 
-Useful columns include `attachment_count`, `attachment_total_bytes`, `largest_attachment_bytes`, `prompt_char_count`, `criterion_count`, `primary_criteria_count`, and `secondary_criteria_count`.
+Useful columns include `job`, `task_description`, `success_criteria`, `attachment_count`, `attachment_total_bytes`, `attachment_total_mb`, `largest_attachment_bytes`, `prompt_char_count`, `criterion_count`, `primary_criteria_count`, and `secondary_criteria_count`.
+
+### Run the Python-exec smoke test
+
+```bash
+apex-finance-eval smoke-python-exec \
+  --config configs/openai_daytona_python_exec_smoke_20260401.json
+```
+
+This is the fastest way to verify that:
+
+- the model actually calls `python_exec`
+- Daytona sandbox startup works
+- workspace sync works
+- Python runs successfully
+- the final answer exactly matches a known expected result
 
 ### Run an evaluation
 

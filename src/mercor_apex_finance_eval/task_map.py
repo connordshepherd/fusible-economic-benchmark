@@ -6,13 +6,17 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .dataset import filter_tasks, load_tasks, resolve_attachment_paths
+from .task_metadata import apply_task_metadata_override, load_task_metadata_overrides
 from .types import TaskRecord
-from .utils import jsonable, shorten, write_json
+from .utils import jsonable, write_json
 
 
 TASK_MAP_HEADERS = [
     "task_id",
     "domain",
+    "job",
+    "task_description",
+    "success_criteria",
     "attachment_count",
     "attachment_total_bytes",
     "attachment_total_mb",
@@ -26,10 +30,9 @@ TASK_MAP_HEADERS = [
     "secondary_criteria_count",
     "criteria_with_sources_count",
     "criterion_types",
-    "prompt_preview",
 ]
 
-TASK_MAP_SORT_FIELDS = set(TASK_MAP_HEADERS) - {"attachment_paths", "prompt_preview", "criterion_types"}
+TASK_MAP_SORT_FIELDS = set(TASK_MAP_HEADERS) - {"task_description", "success_criteria", "attachment_paths", "criterion_types"}
 
 
 def _normalize_rubric(rubric_json: str) -> dict[str, Any]:
@@ -69,8 +72,14 @@ def _criterion_types(rubric: dict[str, Any]) -> str:
     return ";".join(types)
 
 
-def build_task_map_rows(dataset_dir: str | Path, tasks: Iterable[TaskRecord]) -> list[dict[str, Any]]:
+def build_task_map_rows(
+    dataset_dir: str | Path,
+    tasks: Iterable[TaskRecord],
+    *,
+    task_metadata_path: str | Path | None = None,
+) -> list[dict[str, Any]]:
     dataset_dir = Path(dataset_dir)
+    authored_metadata = load_task_metadata_overrides(task_metadata_path)
     rows: list[dict[str, Any]] = []
 
     for task in tasks:
@@ -92,26 +101,27 @@ def build_task_map_rows(dataset_dir: str | Path, tasks: Iterable[TaskRecord]) ->
         prompt_word_count = len(task.prompt.split())
         criterion_count = len(rubric)
 
-        rows.append(
-            {
-                "task_id": task.task_id,
-                "domain": task.domain,
-                "attachment_count": len(attachment_paths),
-                "attachment_total_bytes": sum(attachment_sizes),
-                "attachment_total_mb": round(sum(attachment_sizes) / (1024 * 1024), 6),
-                "largest_attachment_bytes": max(attachment_sizes) if attachment_sizes else 0,
-                "attachment_extensions": _attachment_extensions(attachment_paths),
-                "attachment_paths": ";".join(str(path.relative_to(dataset_dir)) for path in attachment_paths),
-                "prompt_char_count": len(task.prompt),
-                "prompt_word_count": prompt_word_count,
-                "criterion_count": criterion_count,
-                "primary_criteria_count": primary_count,
-                "secondary_criteria_count": max(criterion_count - primary_count, 0),
-                "criteria_with_sources_count": criteria_with_sources,
-                "criterion_types": _criterion_types(rubric),
-                "prompt_preview": shorten(task.prompt, 160),
-            }
-        )
+        row = {
+            "task_id": task.task_id,
+            "domain": task.domain,
+            "job": "",
+            "task_description": task.task_description,
+            "success_criteria": "",
+            "attachment_count": len(attachment_paths),
+            "attachment_total_bytes": sum(attachment_sizes),
+            "attachment_total_mb": round(sum(attachment_sizes) / (1024 * 1024), 6),
+            "largest_attachment_bytes": max(attachment_sizes) if attachment_sizes else 0,
+            "attachment_extensions": _attachment_extensions(attachment_paths),
+            "attachment_paths": ";".join(str(path.relative_to(dataset_dir)) for path in attachment_paths),
+            "prompt_char_count": len(task.prompt),
+            "prompt_word_count": prompt_word_count,
+            "criterion_count": criterion_count,
+            "primary_criteria_count": primary_count,
+            "secondary_criteria_count": max(criterion_count - primary_count, 0),
+            "criteria_with_sources_count": criteria_with_sources,
+            "criterion_types": _criterion_types(rubric),
+        }
+        rows.append(apply_task_metadata_override(row, authored_metadata.get(task.task_id)))
 
     return rows
 
@@ -119,6 +129,7 @@ def build_task_map_rows(dataset_dir: str | Path, tasks: Iterable[TaskRecord]) ->
 def generate_task_map(
     dataset_dir: str | Path,
     *,
+    task_metadata_path: str | Path | None = None,
     domain: str | None = None,
     task_ids: list[int] | None = None,
     start_index: int = 0,
@@ -137,7 +148,7 @@ def generate_task_map(
         start_index=start_index,
         limit=limit,
     )
-    rows = build_task_map_rows(dataset_dir, tasks)
+    rows = build_task_map_rows(dataset_dir, tasks, task_metadata_path=task_metadata_path)
     rows.sort(key=lambda row: row.get(sort_by), reverse=descending)
     return rows
 

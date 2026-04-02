@@ -6,12 +6,23 @@ from pathlib import Path
 from statistics import mean
 from typing import Any
 
+from .runtime_metrics import infer_generation_steps_used, tools_used_text, union_tools
 from .utils import read_jsonl, write_json
 
 
 TASK_SUMMARY_HEADERS = [
     "task_id",
     "domain",
+    "job",
+    "task_description",
+    "success_criteria",
+    "attachment_count",
+    "attachment_total_bytes",
+    "attachment_total_mb",
+    "largest_attachment_bytes",
+    "criterion_count",
+    "primary_criteria_count",
+    "secondary_criteria_count",
     "attempts",
     "completed_runs",
     "business_passes",
@@ -30,7 +41,8 @@ TASK_SUMMARY_HEADERS = [
     "expected_net_low_usd_per_attempt",
     "expected_net_base_usd_per_attempt",
     "expected_net_high_usd_per_attempt",
-    "prompt_preview",
+    "mean_generation_steps_used",
+    "tools_used",
 ]
 
 
@@ -56,6 +68,7 @@ def summarize_records(records: list[dict[str, Any]]) -> tuple[list[dict[str, Any
         total_cost = sum(float(row.get("total_cost_usd_this_run", 0.0) or 0.0) for row in rows)
         score_values = [float(row.get("score_pct", 0.0) or 0.0) for row in completed]
         success_costs = [float(row.get("total_cost_usd_this_run", 0.0) or 0.0) for row in passes]
+        steps_values = [value for row in rows if (value := infer_generation_steps_used(row)) is not None]
 
         example = rows[0]
         pass_rate = len(passes) / attempts if attempts else 0.0
@@ -64,6 +77,16 @@ def summarize_records(records: list[dict[str, Any]]) -> tuple[list[dict[str, Any
         row = {
             "task_id": task_id,
             "domain": example.get("domain"),
+            "job": example.get("job", ""),
+            "task_description": example.get("task_description") or example.get("prompt_preview", ""),
+            "success_criteria": example.get("success_criteria", ""),
+            "attachment_count": int(example.get("attachment_count", 0) or 0),
+            "attachment_total_bytes": int(example.get("attachment_total_bytes", 0) or 0),
+            "attachment_total_mb": float(example.get("attachment_total_mb", 0.0) or 0.0),
+            "largest_attachment_bytes": int(example.get("largest_attachment_bytes", 0) or 0),
+            "criterion_count": int(example.get("criterion_count", 0) or 0),
+            "primary_criteria_count": int(example.get("primary_criteria_count", 0) or 0),
+            "secondary_criteria_count": int(example.get("secondary_criteria_count", 0) or 0),
             "attempts": attempts,
             "completed_runs": len(completed),
             "business_passes": len(passes),
@@ -82,7 +105,8 @@ def summarize_records(records: list[dict[str, Any]]) -> tuple[list[dict[str, Any
             "expected_net_low_usd_per_attempt": round(pass_rate * float(example.get("value_low_usd", 0.0)) - mean_cost, 6),
             "expected_net_base_usd_per_attempt": round(pass_rate * float(example.get("value_base_usd", 0.0)) - mean_cost, 6),
             "expected_net_high_usd_per_attempt": round(pass_rate * float(example.get("value_high_usd", 0.0)) - mean_cost, 6),
-            "prompt_preview": example.get("prompt_preview", ""),
+            "mean_generation_steps_used": round(_safe_mean([float(value) for value in steps_values]), 4) if steps_values else "",
+            "tools_used": tools_used_text(union_tools(rows)),
         }
         task_rows.append(row)
 
@@ -102,6 +126,11 @@ def summarize_records(records: list[dict[str, Any]]) -> tuple[list[dict[str, Any
         "mean_expected_net_base_usd_per_attempt": round(
             _safe_mean([float(row["expected_net_base_usd_per_attempt"]) for row in task_rows]), 6
         ) if task_rows else 0.0,
+        "mean_generation_steps_used_per_attempt": round(
+            _safe_mean([float(row["mean_generation_steps_used"]) for row in task_rows if row["mean_generation_steps_used"] != ""]),
+            4,
+        ) if any(row["mean_generation_steps_used"] != "" for row in task_rows) else None,
+        "tools_used": tools_used_text(union_tools(records)),
     }
     return task_rows, overall
 
@@ -127,18 +156,26 @@ def write_report_md(path: str | Path, task_rows: list[dict[str, Any]], overall: 
         f"- Total business passes: **{overall['total_business_passes']}**",
         f"- Overall pass rate: **{overall['overall_pass_rate']:.4f}**",
         f"- Mean total cost per attempt: **${overall['mean_total_cost_per_attempt_usd']:.6f}**",
+        f"- Mean generation steps per attempt: **{overall['mean_generation_steps_used_per_attempt']:.2f}**"
+        if overall['mean_generation_steps_used_per_attempt'] is not None
+        else "- Mean generation steps per attempt: **—**",
+        f"- Tools used: **{overall['tools_used'] or '—'}**",
         "",
         "## Task summary",
         "",
-        "| Task ID | Pass rate | Mean score | Mean cost/attempt | Cost/success | Value base | Expected net/base |",
-        "|---:|---:|---:|---:|---:|---:|---:|",
+        "| Task ID | Pass rate | Mean score | Mean steps | Mean cost/attempt | Cost/success | Value base | Tools used |",
+        "|---:|---:|---:|---:|---:|---:|---:|---|",
     ]
     for row in task_rows:
         cost_per_success = row["cost_per_success_usd"] if row["cost_per_success_usd"] != "" else "—"
+        mean_steps_display = "—"
+        if row["mean_generation_steps_used"] != "":
+            mean_steps_display = f"{float(row['mean_generation_steps_used']):.2f}"
         lines.append(
             f"| {row['task_id']} | {row['pass_rate']:.4f} | {row['mean_score_pct']:.2f} | "
-            f"${float(row['mean_total_cost_per_attempt_usd']):.6f} | {cost_per_success} | "
-            f"${float(row['value_base_usd']):.2f} | ${float(row['expected_net_base_usd_per_attempt']):.6f} |"
+            f"{mean_steps_display} | "
+            f"${float(row['mean_total_cost_per_attempt_usd']):.6f} | "
+            f"{cost_per_success} | ${float(row['value_base_usd']):.2f} | {row['tools_used'] or '—'} |"
         )
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 

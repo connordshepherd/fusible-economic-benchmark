@@ -67,6 +67,7 @@ class AgentSettings:
     max_read_lines: int = 250
     max_find_results: int = 80
     max_tool_output_chars: int = 20000
+    enable_python_exec: bool = True
 
 
 DEFAULT_DAYTONA_PACKAGES = [
@@ -87,6 +88,7 @@ DEFAULT_DAYTONA_PACKAGES = [
 @dataclass(slots=True)
 class DaytonaSettings:
     snapshot_name: str | None = None
+    workspace_root: str | None = None
     base_image: str = "python:3.10-slim"
     preinstall_packages: list[str] = field(default_factory=lambda: list(DEFAULT_DAYTONA_PACKAGES))
     network_block_all: bool = True
@@ -96,6 +98,10 @@ class DaytonaSettings:
     auto_delete_interval: int | None = None
     ephemeral: bool = True
     os_user: str | None = None
+    create_timeout_seconds: int = 300
+    startup_timeout_seconds: int = 300
+    create_retries: int = 2
+    retry_backoff_seconds: float = 5.0
     labels: dict[str, str] = field(default_factory=dict)
     env_vars: dict[str, str] = field(default_factory=dict)
 
@@ -118,6 +124,7 @@ class PricingSettings:
 class TrackingSettings:
     outputs_root: Path
     tracker_dir: Path
+    task_metadata_csv: Path
     auto_refresh_on_run: bool = True
 
 
@@ -220,9 +227,11 @@ def load_config(path: str | Path) -> AppConfig:
             max_read_lines=int(agent_data.get("max_read_lines", 250)),
             max_find_results=int(agent_data.get("max_find_results", 80)),
             max_tool_output_chars=int(agent_data.get("max_tool_output_chars", 20000)),
+            enable_python_exec=bool(agent_data.get("enable_python_exec", True)),
         ),
         daytona=DaytonaSettings(
             snapshot_name=daytona_data.get("snapshot_name"),
+            workspace_root=daytona_data.get("workspace_root"),
             base_image=str(daytona_data.get("base_image", "python:3.10-slim")),
             preinstall_packages=[str(v) for v in daytona_data.get("preinstall_packages", DEFAULT_DAYTONA_PACKAGES)],
             network_block_all=bool(daytona_data.get("network_block_all", True)),
@@ -232,6 +241,10 @@ def load_config(path: str | Path) -> AppConfig:
             auto_delete_interval=daytona_data.get("auto_delete_interval"),
             ephemeral=bool(daytona_data.get("ephemeral", True)),
             os_user=daytona_data.get("os_user"),
+            create_timeout_seconds=int(daytona_data.get("create_timeout_seconds", 300)),
+            startup_timeout_seconds=int(daytona_data.get("startup_timeout_seconds", 300)),
+            create_retries=int(daytona_data.get("create_retries", 2)),
+            retry_backoff_seconds=float(daytona_data.get("retry_backoff_seconds", 5.0)),
             labels={str(k): str(v) for k, v in daytona_data.get("labels", {}).items()},
             env_vars={str(k): str(v) for k, v in daytona_data.get("env_vars", {}).items()},
         ),
@@ -248,6 +261,7 @@ def load_config(path: str | Path) -> AppConfig:
         tracking=TrackingSettings(
             outputs_root=_resolve(base, tracking_data.get("outputs_root"), "../outputs"),
             tracker_dir=_resolve(base, tracking_data.get("tracker_dir"), "../tracker"),
+            task_metadata_csv=_resolve(base, tracking_data.get("task_metadata_csv"), "../configs/task_metadata.csv"),
             auto_refresh_on_run=bool(tracking_data.get("auto_refresh_on_run", True)),
         ),
         config_path=config_path,

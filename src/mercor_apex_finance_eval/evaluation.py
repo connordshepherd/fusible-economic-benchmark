@@ -12,6 +12,7 @@ from .mercor_adapter import run_generation_once, run_grading_once
 from .prompting import generation_system_prompt, generation_user_prompt, grading_prompt, tool_agent_system_prompt
 from .reducto_parser import ReductoAttachmentParser
 from .reporting import rebuild_outputs
+from .task_map import build_task_map_rows
 from .tool_agent import run_tool_assisted_generation_once
 from .utils import append_jsonl, ensure_dir, read_jsonl, sha256_text, shorten, utc_now_iso, write_json
 from .value_model import load_value_overrides, resolve_value_for_task
@@ -38,8 +39,6 @@ def validate_environment(config: AppConfig) -> None:
         env_var = _provider_env_var(model_id)
         if env_var:
             needed.add(env_var)
-    if config.generation.mode == "tool_assisted_daytona":
-        needed.add("DAYTONA_API_KEY")
     if config.reducto.enabled:
         needed.add("REDUCTO_API_KEY")
 
@@ -53,8 +52,16 @@ def _selected_tasks_csv(output_path: Path, rows: list[dict[str, Any]]) -> None:
     headers = [
         "task_id",
         "domain",
+        "job",
+        "task_description",
+        "success_criteria",
         "attachment_count",
-        "prompt_preview",
+        "attachment_total_bytes",
+        "attachment_total_mb",
+        "largest_attachment_bytes",
+        "criterion_count",
+        "primary_criteria_count",
+        "secondary_criteria_count",
         "hours_estimate",
         "value_low_usd",
         "value_base_usd",
@@ -89,6 +96,14 @@ class FinanceEvaluator:
 
     def _selection_rows(self, tasks) -> list[dict[str, Any]]:
         overrides = load_value_overrides(self.config.value_model.overrides_csv)
+        task_map_rows = {
+            int(row["task_id"]): row
+            for row in build_task_map_rows(
+                self.config.dataset_dir,
+                tasks,
+                task_metadata_path=self.config.tracking.task_metadata_csv,
+            )
+        }
         rows = []
         for task in tasks:
             value = resolve_value_for_task(
@@ -99,12 +114,21 @@ class FinanceEvaluator:
                 base_rate=self.config.value_model.base_rate,
                 high_rate=self.config.value_model.high_rate,
             )
+            task_map_row = task_map_rows.get(task.task_id, {})
             rows.append(
                 {
                     "task_id": task.task_id,
                     "domain": task.domain,
-                    "attachment_count": task.attachment_count,
-                    "prompt_preview": shorten(task.prompt, 160),
+                    "job": str(task_map_row.get("job", "") or ""),
+                    "task_description": str(task_map_row.get("task_description", task.task_description) or task.task_description),
+                    "success_criteria": str(task_map_row.get("success_criteria", "") or ""),
+                    "attachment_count": int(task_map_row.get("attachment_count", task.attachment_count) or 0),
+                    "attachment_total_bytes": int(task_map_row.get("attachment_total_bytes", 0) or 0),
+                    "attachment_total_mb": float(task_map_row.get("attachment_total_mb", 0.0) or 0.0),
+                    "largest_attachment_bytes": int(task_map_row.get("largest_attachment_bytes", 0) or 0),
+                    "criterion_count": int(task_map_row.get("criterion_count", 0) or 0),
+                    "primary_criteria_count": int(task_map_row.get("primary_criteria_count", 0) or 0),
+                    "secondary_criteria_count": int(task_map_row.get("secondary_criteria_count", 0) or 0),
                     "hours_estimate": value.hours_estimate,
                     "value_low_usd": value.value_low_usd,
                     "value_base_usd": value.value_base_usd,
@@ -126,6 +150,14 @@ class FinanceEvaluator:
             start_index=self.config.selection.start_index,
             limit=self.config.selection.limit,
         )
+        task_metadata_by_id = {
+            int(row["task_id"]): row
+            for row in build_task_map_rows(
+                self.config.dataset_dir,
+                selected,
+                task_metadata_path=self.config.tracking.task_metadata_csv,
+            )
+        }
         overrides = load_value_overrides(self.config.value_model.overrides_csv)
         existing = self._existing_run_keys()
 
@@ -150,6 +182,7 @@ class FinanceEvaluator:
         for task in selected:
             resolved_attachments = resolve_attachment_paths(self.config.dataset_dir, task)
             parsed_attachments = self.parser.parse_many(resolved_attachments)
+            task_metadata = task_metadata_by_id.get(task.task_id, {})
             parse_cost_for_task = sum(item.cost_incurred_usd for item in parsed_attachments)
             parse_pages_for_task = sum((item.num_pages or 0) for item in parsed_attachments if not item.cache_hit)
             parse_credits_for_task = sum(item.credits_incurred for item in parsed_attachments)
@@ -218,9 +251,18 @@ class FinanceEvaluator:
                     "judge_model_id": self.config.grader.model_id,
                     "judge_reasoning_effort": self.config.grader.model_configs.get("reasoning_effort", ""),
                     "judge_verbosity": self.config.grader.model_configs.get("verbosity", ""),
+                    "job": str(task_metadata.get("job", "") or ""),
+                    "task_description": str(task_metadata.get("task_description", task.task_description) or task.task_description),
+                    "success_criteria": str(task_metadata.get("success_criteria", "") or ""),
                     "prompt_preview": shorten(task.prompt, 160),
-                    "attachment_count": task.attachment_count,
+                    "attachment_count": int(task_metadata.get("attachment_count", task.attachment_count) or 0),
+                    "attachment_total_bytes": int(task_metadata.get("attachment_total_bytes", 0) or 0),
+                    "attachment_total_mb": float(task_metadata.get("attachment_total_mb", 0.0) or 0.0),
+                    "largest_attachment_bytes": int(task_metadata.get("largest_attachment_bytes", 0) or 0),
                     "attachment_paths": task.attachment_paths,
+                    "criterion_count": int(task_metadata.get("criterion_count", 0) or 0),
+                    "primary_criteria_count": int(task_metadata.get("primary_criteria_count", 0) or 0),
+                    "secondary_criteria_count": int(task_metadata.get("secondary_criteria_count", 0) or 0),
                     "hours_estimate": value.hours_estimate,
                     "value_low_usd": value.value_low_usd,
                     "value_base_usd": value.value_base_usd,
@@ -244,6 +286,8 @@ class FinanceEvaluator:
                     "generation_price_book_id": generation.get("details", {}).get("price_book_id", ""),
                     "generation_execution_time_seconds": generation["execution_time_seconds"],
                     "generation_error_message": generation["error_message"],
+                    "generation_steps_used": int(generation.get("generation_steps_used", 0) or 0),
+                    "tools_used": generation.get("tools_used", []),
                     "generation_details": generation.get("details", {}),
                     "status": "generation_failed",
                     "score_pct": 0.0,

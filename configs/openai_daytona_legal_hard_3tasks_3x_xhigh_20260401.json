@@ -1,0 +1,87 @@
+{
+  "dataset_dir": "../data/APEX-v1-extended",
+  "output_dir": "../outputs/openai_daytona_legal_hard_3tasks_3x_xhigh_20260401",
+  "parse_cache_dir": "../.cache/reducto",
+  "selection": {
+    "domain": "Legal",
+    "task_ids": [
+      13,
+      1041,
+      1230
+    ],
+    "start_index": 0,
+    "limit": 3
+  },
+  "model": {
+    "model_id": "gpt-5.4",
+    "max_tokens": 32768,
+    "max_input_tokens": 272000,
+    "model_configs": {
+      "reasoning_effort": "xhigh",
+      "verbosity": "medium"
+    }
+  },
+  "grader": {
+    "model_id": "gpt-5.4",
+    "temperature": 0.01,
+    "max_tokens": 65535,
+    "model_configs": {
+      "reasoning_effort": "medium",
+      "verbosity": "low"
+    }
+  },
+  "generation": {
+    "mode": "tool_assisted_daytona"
+  },
+  "agent": {
+    "max_steps": 24,
+    "max_tool_calls": 48,
+    "tool_timeout_seconds": 60,
+    "max_read_lines": 250,
+    "max_find_results": 80,
+    "max_tool_output_chars": 20000
+  },
+  "daytona": {
+    "base_image": "python:3.10-slim",
+    "network_block_all": true,
+    "auto_stop_interval": 15,
+    "ephemeral": true
+  },
+  "reducto": {
+    "enabled": true,
+    "credit_price_usd": 0.015,
+    "table_output_format": "html",
+    "chunk_mode": "variable",
+    "summarize_figures": true,
+    "agentic_scopes": [],
+    "filter_blocks": [
+      "Header",
+      "Footer",
+      "Page Number"
+    ]
+  },
+  "evaluation": {
+    "runs_per_task": 3,
+    "min_overall_score_pct": 80.0,
+    "require_all_primary": true,
+    "resume": true,
+    "save_response_text": true,
+    "save_score_summary": true
+  },
+  "value_model": {
+    "overrides_csv": "legal_values.csv",
+    "default_hours": 3.5,
+    "low_rate": 100.0,
+    "base_rate": 150.0,
+    "high_rate": 250.0
+  },
+  "pricing": {
+    "openai_price_book": "openai_pricing.json"
+  },
+  "tracking": {
+    "outputs_root": "../outputs",
+    "tracker_dir": "../tracker",
+    "task_metadata_csv": "../configs/task_metadata.csv",
+    "auto_refresh_on_run": true
+  }
+}

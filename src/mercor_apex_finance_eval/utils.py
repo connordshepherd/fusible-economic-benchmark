@@ -29,8 +29,12 @@ def sha256_file(path: Path) -> str:
     return sha256_bytes(path.read_bytes())
 
 
+def compact_text(text: str) -> str:
+    return " ".join((text or "").split())
+
+
 def shorten(text: str, limit: int = 120) -> str:
-    compact = " ".join((text or "").split())
+    compact = compact_text(text)
     return compact[:limit] + ("…" if len(compact) > limit else "")
 
 

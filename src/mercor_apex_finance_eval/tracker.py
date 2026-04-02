@@ -7,7 +7,10 @@ from pathlib import Path
 from statistics import mean
 from typing import Any
 
+from .dataset import load_tasks
 from .pricing import openai_cost_usd, openai_price_book_id
+from .runtime_metrics import infer_generation_steps_used, infer_tools_used, tools_used_text, union_tools
+from .task_map import build_task_map_rows
 from .utils import ensure_dir, read_jsonl, utc_now_iso, write_json
 
 PROMOTION_HEADERS = [
@@ -35,6 +38,22 @@ DISCOVERED_ATTEMPT_HEADERS = [
     "task_id",
     "run_index",
     "domain",
+    "job",
+    "task_description",
+    "success_criteria",
+    "attachment_count",
+    "attachment_total_bytes",
+    "attachment_total_mb",
+    "largest_attachment_bytes",
+    "attachment_extensions",
+    "attachment_paths",
+    "prompt_char_count",
+    "prompt_word_count",
+    "criterion_count",
+    "primary_criteria_count",
+    "secondary_criteria_count",
+    "criteria_with_sources_count",
+    "criterion_types",
     "status",
     "business_pass",
     "score_pct",
@@ -46,13 +65,14 @@ DISCOVERED_ATTEMPT_HEADERS = [
     "judge_verbosity",
     "generation_mode",
     "agent_budget",
+    "generation_steps_used",
+    "tools_used",
     "generation_prompt_fingerprint",
     "grading_prompt_fingerprint",
     "setup_id",
     "price_book_id_current",
     "value_base_usd",
     "hours_estimate",
-    "prompt_preview",
     "generation_input_tokens",
     "generation_cached_input_tokens",
     "generation_output_tokens",
@@ -71,7 +91,22 @@ PROMOTED_ATTEMPT_HEADERS = list(DISCOVERED_ATTEMPT_HEADERS)
 MASTER_TRACKER_HEADERS = [
     "task_id",
     "domain",
-    "prompt_preview",
+    "job",
+    "task_description",
+    "success_criteria",
+    "attachment_count",
+    "attachment_total_bytes",
+    "attachment_total_mb",
+    "largest_attachment_bytes",
+    "attachment_extensions",
+    "attachment_paths",
+    "prompt_char_count",
+    "prompt_word_count",
+    "criterion_count",
+    "primary_criteria_count",
+    "secondary_criteria_count",
+    "criteria_with_sources_count",
+    "criterion_types",
     "setup_id",
     "generation_mode",
     "model_id",
@@ -83,6 +118,8 @@ MASTER_TRACKER_HEADERS = [
     "generation_prompt_fingerprint",
     "grading_prompt_fingerprint",
     "agent_budget",
+    "mean_generation_steps_used",
+    "tools_used",
     "price_book_id_current",
     "promoted_attempts",
     "completed_runs",
@@ -100,6 +137,8 @@ MASTER_TRACKER_HEADERS = [
     "latest_attempt_completed_at",
     "promotion_labels",
 ]
+
+_TASK_METADATA_CACHE: dict[str, dict[int, dict[str, Any]]] = {}
 
 
 def _write_csv(path: Path, headers: list[str], rows: list[dict[str, Any]]) -> Path:
@@ -144,6 +183,39 @@ def _load_promotions(path: Path) -> dict[str, dict[str, Any]]:
 def _write_promotions(path: Path, rows: list[dict[str, Any]]) -> Path:
     ordered = sorted(rows, key=lambda row: (str(row.get("promoted_at", "")), str(row.get("attempt_key", ""))))
     return _write_csv(path, PROMOTION_HEADERS, ordered)
+
+
+def _load_task_metadata(
+    dataset_dir: str | Path | None,
+    *,
+    task_metadata_path: str | Path | None = None,
+) -> dict[int, dict[str, Any]]:
+    if not dataset_dir:
+        return {}
+
+    dataset_path = Path(dataset_dir).resolve()
+    authored_path = Path(task_metadata_path).resolve() if task_metadata_path else None
+    authored_mtime = authored_path.stat().st_mtime_ns if authored_path and authored_path.exists() else "missing"
+    cache_key = f"{dataset_path}::{authored_path or ''}::{authored_mtime}"
+    cached = _TASK_METADATA_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    try:
+        tasks = load_tasks(dataset_path)
+        task_map_rows = build_task_map_rows(dataset_path, tasks, task_metadata_path=authored_path)
+    except Exception:
+        _TASK_METADATA_CACHE[cache_key] = {}
+        return {}
+
+    rows_by_task_id = {int(row["task_id"]): row for row in task_map_rows}
+    metadata_by_task_id: dict[int, dict[str, Any]] = {}
+    for task in tasks:
+        row = dict(rows_by_task_id.get(task.task_id, {}))
+        metadata_by_task_id[task.task_id] = row
+
+    _TASK_METADATA_CACHE[cache_key] = metadata_by_task_id
+    return metadata_by_task_id
 
 
 def _infer_generation_cached_input_tokens(record: dict[str, Any]) -> int:
@@ -232,6 +304,7 @@ def _normalize_attempt_record(
     run_jsonl_path: Path,
     price_book_path: Path,
     promotions: dict[str, dict[str, Any]],
+    task_metadata_path: str | Path | None = None,
 ) -> dict[str, Any] | None:
     manifest = _read_manifest(run_jsonl_path)
     manifest_config = manifest.get("config", {})
@@ -247,6 +320,10 @@ def _normalize_attempt_record(
     run_index = int(record["run_index"])
     attempt_key = _attempt_key(run_jsonl_path, task_id, run_index)
     promotion = promotions.get(attempt_key, {})
+    task_metadata = _load_task_metadata(
+        manifest_config.get("dataset_dir"),
+        task_metadata_path=task_metadata_path or manifest_config.get("tracking", {}).get("task_metadata_csv"),
+    ).get(task_id, {})
 
     generation_input_tokens = int(record.get("generation_input_tokens", 0) or 0)
     generation_cached_input_tokens = _infer_generation_cached_input_tokens(record)
@@ -294,6 +371,16 @@ def _normalize_attempt_record(
     generation_prompt_fingerprint = str(record.get("generation_prompt_fingerprint", "") or "")
     grading_prompt_fingerprint = str(record.get("grading_prompt_fingerprint", "") or "")
     agent_budget = f"steps={int(agent_config.get('max_steps', 0) or 0)},tools={int(agent_config.get('max_tool_calls', 0) or 0)}"
+    generation_steps_used = infer_generation_steps_used(record)
+    tools_used = infer_tools_used(record)
+    task_description = str(
+        record.get("task_description")
+        or task_metadata.get("task_description")
+        or record.get("prompt_preview")
+        or ""
+    )
+    success_criteria = str(record.get("success_criteria") or task_metadata.get("success_criteria") or "")
+    job = str(record.get("job") or task_metadata.get("job") or "")
 
     return {
         "attempt_key": attempt_key,
@@ -308,6 +395,30 @@ def _normalize_attempt_record(
         "task_id": task_id,
         "run_index": run_index,
         "domain": record.get("domain", ""),
+        "job": job,
+        "task_description": task_description,
+        "success_criteria": success_criteria,
+        "attachment_count": int(task_metadata.get("attachment_count", record.get("attachment_count", 0)) or 0),
+        "attachment_total_bytes": int(task_metadata.get("attachment_total_bytes", record.get("attachment_total_bytes", 0)) or 0),
+        "attachment_total_mb": float(task_metadata.get("attachment_total_mb", record.get("attachment_total_mb", 0.0)) or 0.0),
+        "largest_attachment_bytes": int(
+            task_metadata.get("largest_attachment_bytes", record.get("largest_attachment_bytes", 0)) or 0
+        ),
+        "attachment_extensions": str(task_metadata.get("attachment_extensions", record.get("attachment_extensions", "")) or ""),
+        "attachment_paths": str(task_metadata.get("attachment_paths", record.get("attachment_paths", "")) or ""),
+        "prompt_char_count": int(task_metadata.get("prompt_char_count", len(task_description)) or 0),
+        "prompt_word_count": int(task_metadata.get("prompt_word_count", len(task_description.split())) or 0),
+        "criterion_count": int(task_metadata.get("criterion_count", record.get("criterion_count", 0)) or 0),
+        "primary_criteria_count": int(
+            task_metadata.get("primary_criteria_count", record.get("primary_criteria_count", 0)) or 0
+        ),
+        "secondary_criteria_count": int(
+            task_metadata.get("secondary_criteria_count", record.get("secondary_criteria_count", 0)) or 0
+        ),
+        "criteria_with_sources_count": int(
+            task_metadata.get("criteria_with_sources_count", record.get("criteria_with_sources_count", 0)) or 0
+        ),
+        "criterion_types": str(task_metadata.get("criterion_types", record.get("criterion_types", "")) or ""),
         "status": record.get("status", ""),
         "business_pass": bool(record.get("business_pass", False)),
         "score_pct": float(record.get("score_pct", 0.0) or 0.0),
@@ -319,6 +430,8 @@ def _normalize_attempt_record(
         "judge_verbosity": judge_verbosity,
         "generation_mode": generation_mode,
         "agent_budget": agent_budget,
+        "generation_steps_used": generation_steps_used if generation_steps_used is not None else "",
+        "tools_used": tools_used_text(tools_used),
         "generation_prompt_fingerprint": generation_prompt_fingerprint,
         "grading_prompt_fingerprint": grading_prompt_fingerprint,
         "setup_id": _setup_id(
@@ -334,7 +447,6 @@ def _normalize_attempt_record(
         "price_book_id_current": openai_price_book_id(price_book_path),
         "value_base_usd": float(record.get("value_base_usd", 0.0) or 0.0),
         "hours_estimate": float(record.get("hours_estimate", 0.0) or 0.0),
-        "prompt_preview": record.get("prompt_preview", ""),
         "generation_input_tokens": generation_input_tokens,
         "generation_cached_input_tokens": generation_cached_input_tokens,
         "generation_output_tokens": generation_output_tokens,
@@ -352,7 +464,13 @@ def _normalize_attempt_record(
     }
 
 
-def discover_attempt_rows(outputs_root: str | Path, *, price_book_path: str | Path, promotions_path: str | Path) -> list[dict[str, Any]]:
+def discover_attempt_rows(
+    outputs_root: str | Path,
+    *,
+    price_book_path: str | Path,
+    promotions_path: str | Path,
+    task_metadata_path: str | Path | None = None,
+) -> list[dict[str, Any]]:
     outputs_root = Path(outputs_root).resolve()
     price_book_path = Path(price_book_path).resolve()
     promotions = _load_promotions(Path(promotions_path).resolve())
@@ -364,6 +482,7 @@ def discover_attempt_rows(outputs_root: str | Path, *, price_book_path: str | Pa
                 run_jsonl_path=run_jsonl_path,
                 price_book_path=price_book_path,
                 promotions=promotions,
+                task_metadata_path=task_metadata_path,
             )
             if normalized is not None:
                 rows.append(normalized)
@@ -384,6 +503,11 @@ def summarize_promoted_attempts(rows: list[dict[str, Any]]) -> tuple[list[dict[s
 
         total_cost = sum(float(row["current_total_cost_usd"]) for row in group_rows)
         success_costs = [float(row["current_total_cost_usd"]) for row in pass_rows]
+        steps_values = [
+            float(row["generation_steps_used"])
+            for row in group_rows
+            if row.get("generation_steps_used", "") != ""
+        ]
         pass_rate = len(pass_rows) / attempts if attempts else 0.0
         mean_cost = total_cost / attempts if attempts else 0.0
 
@@ -391,7 +515,22 @@ def summarize_promoted_attempts(rows: list[dict[str, Any]]) -> tuple[list[dict[s
             {
                 "task_id": int(example["task_id"]),
                 "domain": example["domain"],
-                "prompt_preview": example["prompt_preview"],
+                "job": example["job"],
+                "task_description": example["task_description"],
+                "success_criteria": example["success_criteria"],
+                "attachment_count": int(example["attachment_count"]),
+                "attachment_total_bytes": int(example["attachment_total_bytes"]),
+                "attachment_total_mb": float(example["attachment_total_mb"]),
+                "largest_attachment_bytes": int(example["largest_attachment_bytes"]),
+                "attachment_extensions": example["attachment_extensions"],
+                "attachment_paths": example["attachment_paths"],
+                "prompt_char_count": int(example["prompt_char_count"]),
+                "prompt_word_count": int(example["prompt_word_count"]),
+                "criterion_count": int(example["criterion_count"]),
+                "primary_criteria_count": int(example["primary_criteria_count"]),
+                "secondary_criteria_count": int(example["secondary_criteria_count"]),
+                "criteria_with_sources_count": int(example["criteria_with_sources_count"]),
+                "criterion_types": example["criterion_types"],
                 "setup_id": example["setup_id"],
                 "generation_mode": example["generation_mode"],
                 "model_id": example["model_id"],
@@ -403,6 +542,8 @@ def summarize_promoted_attempts(rows: list[dict[str, Any]]) -> tuple[list[dict[s
                 "generation_prompt_fingerprint": example["generation_prompt_fingerprint"],
                 "grading_prompt_fingerprint": example["grading_prompt_fingerprint"],
                 "agent_budget": example["agent_budget"],
+                "mean_generation_steps_used": round(_safe_mean(steps_values), 4) if steps_values else "",
+                "tools_used": tools_used_text(union_tools(group_rows)),
                 "price_book_id_current": example["price_book_id_current"],
                 "promoted_attempts": attempts,
                 "completed_runs": len(completed_rows),
@@ -441,10 +582,15 @@ def summarize_promoted_attempts(rows: list[dict[str, Any]]) -> tuple[list[dict[s
             _safe_mean([float(row["mean_total_cost_per_attempt_usd"]) for row in summary_rows]),
             6,
         ) if summary_rows else 0.0,
+        "mean_generation_steps_used": round(
+            _safe_mean([float(row["mean_generation_steps_used"]) for row in summary_rows if row["mean_generation_steps_used"] != ""]),
+            4,
+        ) if any(row["mean_generation_steps_used"] != "" for row in summary_rows) else None,
         "mean_expected_net_base_usd_per_attempt": round(
             _safe_mean([float(row["expected_net_base_usd_per_attempt"]) for row in summary_rows]),
             6,
         ) if summary_rows else 0.0,
+        "tools_used": tools_used_text(union_tools(rows)),
     }
     return summary_rows, overall
 
@@ -460,31 +606,50 @@ def _write_master_report(path: Path, rows: list[dict[str, Any]], overall: dict[s
         f"- Business passes: **{overall['business_passes']}**",
         f"- Overall pass rate: **{overall['overall_pass_rate']:.4f}**",
         f"- Mean total cost per attempt: **${overall['mean_total_cost_per_attempt_usd']:.6f}**",
+        f"- Mean generation steps per attempt: **{overall['mean_generation_steps_used']:.2f}**"
+        if overall['mean_generation_steps_used'] is not None
+        else "- Mean generation steps per attempt: **—**",
+        f"- Tools used: **{overall['tools_used'] or '—'}**",
         "",
         "## Task Setups",
         "",
-        "| Task | Model | Reasoning | Runs | Pass rate | Cost/success | Value base | Expected net/base |",
-        "|---:|---|---|---:|---:|---:|---:|---:|",
+        "| Task | Model | Reasoning | Runs | Mean steps | Pass rate | Cost/success | Value base | Tools used |",
+        "|---:|---|---|---:|---:|---:|---:|---:|---|",
     ]
     for row in rows:
         cost_per_success = row["cost_per_success_usd"] if row["cost_per_success_usd"] != "" else "—"
+        mean_steps_display = "—"
+        if row["mean_generation_steps_used"] != "":
+            mean_steps_display = f"{float(row['mean_generation_steps_used']):.2f}"
         lines.append(
             f"| {row['task_id']} | {row['model_id']} | {row['generation_reasoning_effort'] or 'default'} | "
-            f"{row['promoted_attempts']} | {float(row['pass_rate']):.4f} | {cost_per_success} | "
-            f"${float(row['value_base_usd']):.2f} | ${float(row['expected_net_base_usd_per_attempt']):.6f} |"
+            f"{row['promoted_attempts']} | {mean_steps_display} | "
+            f"{float(row['pass_rate']):.4f} | {cost_per_success} | "
+            f"${float(row['value_base_usd']):.2f} | {row['tools_used'] or '—'} |"
         )
     ensure_dir(path.parent)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return path
 
 
-def rebuild_tracker(outputs_root: str | Path, tracker_dir: str | Path, *, price_book_path: str | Path) -> dict[str, Any]:
+def rebuild_tracker(
+    outputs_root: str | Path,
+    tracker_dir: str | Path,
+    *,
+    price_book_path: str | Path,
+    task_metadata_path: str | Path | None = None,
+) -> dict[str, Any]:
     outputs_root = Path(outputs_root).resolve()
     tracker_dir = ensure_dir(Path(tracker_dir).resolve())
     price_book_path = Path(price_book_path).resolve()
 
     promotions_path = tracker_dir / "promotions.csv"
-    discovered_rows = discover_attempt_rows(outputs_root, price_book_path=price_book_path, promotions_path=promotions_path)
+    discovered_rows = discover_attempt_rows(
+        outputs_root,
+        price_book_path=price_book_path,
+        promotions_path=promotions_path,
+        task_metadata_path=task_metadata_path,
+    )
     discovered_rows.sort(key=lambda row: (int(row["task_id"]), str(row["output_dir"]), int(row["run_index"])))
     _write_csv(tracker_dir / "discovered_attempts.csv", DISCOVERED_ATTEMPT_HEADERS, discovered_rows)
 
@@ -517,6 +682,7 @@ def promote_run(
     headline: bool = False,
     outputs_root: str | Path,
     price_book_path: str | Path,
+    task_metadata_path: str | Path | None = None,
 ) -> tuple[int, dict[str, Any]]:
     tracker_dir = ensure_dir(Path(tracker_dir).resolve())
     if run_jsonl_path is not None:
@@ -562,5 +728,10 @@ def promote_run(
         }
 
     _write_promotions(promotions_path, list(promotions.values()))
-    summary = rebuild_tracker(outputs_root, tracker_dir, price_book_path=price_book_path)
+    summary = rebuild_tracker(
+        outputs_root,
+        tracker_dir,
+        price_book_path=price_book_path,
+        task_metadata_path=task_metadata_path,
+    )
     return len(selected), summary

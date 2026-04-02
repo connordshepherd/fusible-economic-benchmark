@@ -7,9 +7,12 @@ License: MIT
 Requires-Python: >=3.10
 Description-Content-Type: text/markdown
 License-File: LICENSE
+Requires-Dist: openai>=2.30.0
 Requires-Dist: python-dotenv>=1.0.1
 Requires-Dist: huggingface_hub>=0.25.0
 Requires-Dist: reductoai
+Requires-Dist: daytona-sdk>=0.158.0
+Requires-Dist: psycopg[binary]>=3.2.9
 Provides-Extra: dev
 Requires-Dist: pytest>=8.0.0; extra == "dev"
 Dynamic: license-file
@@ -31,7 +34,7 @@ APEX is a strong place to start because the public release gives you realistic p
    Instead of letting parsing happen opaquely inside a benchmark harness, this repo parses attachments with **Reducto directly** and records pages, credits, cache hits, and dollar cost.
 
 3. **Per-attempt generation and grading cost logging**  
-   The scaffold uses Mercor’s public generation and grading harness for the LLM call and rubric scoring, then writes raw per-run records so you can see generation cost, grading cost, and total attempt cost.
+   The scaffold calls provider SDKs directly for generation and rubric grading, then writes raw per-run records so you can see generation cost, grading cost, and total attempt cost.
 
 4. **A business-pass rule on top of raw APEX score**  
    APEX natively gives criterion-level results and a percentage score. This repo adds an acceptance rule that is more useful for cost-benefit analysis:
@@ -73,8 +76,8 @@ A few choices are deliberate:
 ### Why finance first
 Finance is the cleanest fit for “economically valuable white-collar work” and lines up with common questions like valuation, analysis, memo drafting, and spreadsheet-heavy reasoning.
 
-### Why use Mercor’s public grading harness
-Mercor’s public harness already knows how to score responses against the APEX rubric format. That saves you from rebuilding criterion-level grading from scratch.
+### Why use criterion-level rubric grading
+APEX ships task rubrics with criterion descriptions, weights, and sources. Grading against those criteria directly keeps the runner transparent and makes failures easier to inspect.
 
 ### Why parse with Reducto directly instead of relying on hidden internal parsing
 You said Reducto was acceptable. Parsing directly has two advantages:
@@ -93,10 +96,10 @@ A model can score 70% and still fail a client-style acceptance test. For economi
    This scaffold targets the public APEX-v1-extended release, not Mercor’s hidden leaderboard holdout.
 
 2. **Prompt parity is approximate, not guaranteed**  
-   The prompts in this repo are Mercor-style but not guaranteed to be byte-for-byte identical to Mercor’s own internal evaluation prompts.
+   The prompts in this repo are scaffold prompts over the public APEX tasks, not byte-for-byte copies of any private evaluation prompts.
 
 3. **Cost numbers are runner-side measurements**  
-   Generation and grading costs come from the public harness / provider SDK path. For finance-grade accounting, reconcile against provider billing exports after the run.
+   Generation and grading costs come from the provider SDK path. For finance-grade accounting, reconcile against provider billing exports after the run.
 
 4. **Task values are yours**  
    This repo seeds a value file, but the final “this task is worth $X” judgment is your modeling decision.
@@ -193,6 +196,16 @@ apex-finance-eval list-tasks \
 
 Use this step to decide which tasks to run first.
 
+If you want a fuller structural map of the dataset before choosing tasks, export one:
+
+```bash
+apex-finance-eval map-tasks \
+  --dataset-dir data/APEX-v1-extended \
+  --output outputs/task_map.csv
+```
+
+That writes one row per task with domain, attachment count, combined attachment size, prompt length, and rubric structure so you can sort for likely easy or hard cases.
+
 ### 6. Run a small pilot
 
 ```bash
@@ -204,7 +217,7 @@ apex-finance-eval run \
 That will:
 - load the public finance tasks
 - parse attachments with Reducto
-- call the model through Mercor’s public harness
+- call the configured model directly
 - grade with the judge model
 - write raw JSONL logs
 - write summary CSV / JSON / Markdown reports
@@ -328,6 +341,16 @@ apex-finance-eval list-tasks \
   --values-csv configs/finance_values.csv
 ```
 
+### Export a task map
+
+```bash
+apex-finance-eval map-tasks \
+  --dataset-dir data/APEX-v1-extended \
+  --output outputs/task_map.csv
+```
+
+Useful columns include `attachment_count`, `attachment_total_bytes`, `largest_attachment_bytes`, `prompt_char_count`, `criterion_count`, `primary_criteria_count`, and `secondary_criteria_count`.
+
 ### Run an evaluation
 
 ```bash
@@ -360,14 +383,14 @@ This scaffold tracks three cost buckets:
    Reducto credits × configured dollar-per-credit rate.
 
 2. **Generation cost**  
-   Reported by the public Mercor generation harness.
+   Estimated from provider token usage returned by the SDK.
 
 3. **Grading cost**  
-   Reported by the public Mercor grading harness.
+   Estimated from provider token usage returned by the SDK.
 
 That is enough for experiment accounting. If you need exact invoice reconciliation, export billing data from your provider(s) after the run and compare it to the runner totals.
 
-## If you want to be closer to Mercor’s public methodology
+## If you want to be closer to the public APEX setup
 
 Change the config to something like:
 
@@ -375,11 +398,10 @@ Change the config to something like:
 - runs per task = 8
 - judge model = `gemini-2.5-pro`
 
-That still won’t make the run equivalent to Mercor’s hidden leaderboard, but it gets closer to the public methodology they describe.
+That still won’t make the run equivalent to any hidden leaderboard, but it gets closer to the public APEX setup.
 
 ## References
 
-- Mercor public harness repo: https://github.com/Mercor-Intelligence/apex-evals
 - Mercor public APEX dataset: https://huggingface.co/datasets/mercor/APEX-v1-extended
 - Mercor public APEX leaderboard page: https://www.mercor.com/apex/apex-v1-leaderboard/
 - Reducto Python SDK overview: https://docs.reducto.ai/sdk/python/overview

@@ -12,6 +12,7 @@ The recommended split is:
 - `economic-evals` repo
   - canonical eval code
   - canonical methodology markdown
+  - canonical harness explainer markdown
   - tracker generation
   - publish step for promoted results
 - `economic-evals-site` repo
@@ -27,6 +28,7 @@ The recommended split is:
 Suggested canonical content:
 
 - `docs/methodology.md`
+- `docs/about-our-harness.md`
 - `tracker/master_tracker.csv`
 - `tracker/promoted_attempts.csv`
 - `tracker/master_tracker_overall.json`
@@ -42,6 +44,7 @@ Suggested app responsibilities:
 
 - homepage introducing the project
 - methodology page rendered from synced markdown
+- harness page rendered from synced markdown
 - tracker overview page
 - task detail pages
 - run detail pages if you want drill-down later
@@ -50,6 +53,7 @@ Suggested content layout:
 
 - `app/`
 - `content/methodology.md`
+- `content/about-our-harness.md`
 - `lib/db.ts`
 - `lib/content.ts`
 - `lib/queries.ts`
@@ -81,7 +85,16 @@ Suggested columns:
 - `task_id text not null`
 - `domain text not null`
 - `setup_id text primary key`
-- `prompt_preview text not null`
+- `job text`
+- `task_description text not null`
+- `success_criteria text`
+- `attachment_count integer not null`
+- `attachment_total_bytes bigint not null`
+- `attachment_total_mb double precision not null`
+- `largest_attachment_bytes bigint not null`
+- `criterion_count integer not null`
+- `primary_criteria_count integer not null`
+- `secondary_criteria_count integer not null`
 - `generation_mode text not null`
 - `model_id text not null`
 - `generation_reasoning_effort text`

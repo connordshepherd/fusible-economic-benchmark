@@ -15,6 +15,11 @@ Use one-way sync with GitHub Actions.
 
 Do not make this bi-directional.
 
+If you later want the site to render the harness explainer too, apply the same pattern to:
+
+- `economic-evals/docs/about-our-harness.md`
+- `economic-evals-site/content/about-our-harness.md`
+
 ## Why Not Submodules
 
 `git submodule` would work, but it is not ideal for a single markdown file:
@@ -122,6 +127,7 @@ If you want to make that obvious, add a short comment at the top of the destinat
 If you later want more shared docs, expand this into a `docs-sync/` directory:
 
 - `economic-evals/docs/methodology.md`
+- `economic-evals/docs/about-our-harness.md`
 - `economic-evals/docs/faq.md`
 - `economic-evals/docs/limitations.md`
 

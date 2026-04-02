@@ -1,6 +1,9 @@
+openai>=2.30.0
 python-dotenv>=1.0.1
 huggingface_hub>=0.25.0
 reductoai
+daytona-sdk>=0.158.0
+psycopg[binary]>=3.2.9
 
 [dev]
 pytest>=8.0.0
