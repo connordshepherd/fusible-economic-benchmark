@@ -204,6 +204,7 @@ def cmd_publish_neon(args: argparse.Namespace) -> int:
         schema=args.schema,
     )
     print(f"Published schema: {summary['schema']}")
+    print(f"Task provenances: {summary['task_provenances']}")
     print(f"Task setups: {summary['task_setups']}")
     print(f"Promoted attempts: {summary['promoted_attempts']}")
     print(f"Tracker source: {summary['tracker_dir']}")

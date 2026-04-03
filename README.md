@@ -1,10 +1,10 @@
-# Mercor APEX Eval Harness
+# Economic Eval Harness
 
 ## Brief: what we are doing and why
 
-This repo is a practical wrapper around the **public APEX-v1-extended tasks**. Finance is still the default path in a few commands and file names, but the harness now supports the public Finance, Legal, Medicine, and Consulting slices. The goal is not to reproduce Mercor’s hidden leaderboard exactly. The goal is to answer a more operational question:
+This repo currently runs evals from the **public APEX-v1-extended tasks**. Apex is the source of the task rows we publish today, but the harness and publication model are being shaped so we can add more eval sources later. Finance is still the default path in a few commands and file names, but the harness now supports the public Finance, Legal, Medicine, and Consulting slices. The goal is not to reproduce Mercor’s hidden leaderboard exactly. The goal is to answer a more operational question:
 
-> For a given finance task, how often does a model succeed, what did each attempt cost, and what is the implied cost per successful completion?
+> For a given professional task, how often does a model succeed, what did each attempt cost, and what is the implied cost per successful completion?
 
 APEX is a strong place to start because the public release gives you realistic professional tasks, attached source files, and criterion-level rubrics. That makes it much closer to real knowledge work than a generic academic benchmark. The missing pieces, for an economics-oriented evaluation, are:
 
@@ -36,7 +36,8 @@ In other words, this repo is meant to turn the public APEX dataset into a small 
 
 This repo **is**:
 
-- a reproducible runner for the **public** APEX-v1-extended dataset
+- a reproducible runner for the **public** APEX-v1-extended dataset today
+- structured so more eval sources can be added later without changing the publication model
 - focused on the **Finance** domain by default
 - designed for **cost accounting**
 - designed for **task-by-task valuation**
@@ -55,7 +56,7 @@ This repo **is not**:
 A few choices are deliberate:
 
 ### Why finance first
-Finance was the cleanest starting point for “economically valuable white-collar work,” but the current harness and tracker now support all four public APEX domains.
+Finance was the cleanest starting point for “economically valuable white-collar work,” but the current harness and tracker now support all four public APEX domains. Apex is the current source of the task data in the published tracker, not the long-term limit of the project.
 
 ### Why use criterion-level rubric grading
 APEX ships task rubrics with criterion descriptions, weights, and sources. Grading against those criteria directly keeps the runner transparent and makes failures easier to inspect.
@@ -397,6 +398,8 @@ apex-finance-eval publish-neon \
 ```
 
 `discovered_attempts` is the experiment log. `promotions.csv` is the editorial layer. `master_tracker` and Neon are the published view.
+
+Published task/setup and attempt rows are currently tagged with `task_source = Apex` and linked to a provenance record for the public `APEX-v1-extended` release. That keeps today’s source explicit while leaving room for additional eval sources later.
 
 ## What counts as success
 

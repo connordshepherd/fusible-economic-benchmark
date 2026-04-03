@@ -18,6 +18,8 @@ The public APEX dataset gives us realistic tasks, attachments, and rubrics. Our 
 
 - The public dataset includes Finance, Legal, Medicine, and Consulting.
 - The harness can run any domain in the public release.
+- The published task rows currently come from Apex.
+- The tracker and database now carry explicit provenance so more eval sources can be added later without pretending everything is Apex forever.
 - The published tracker currently includes only `tool_assisted_daytona` attempts.
 - Not every run is published. Only promoted attempts flow into the curated tracker and Neon database.
 
@@ -25,7 +27,7 @@ The public APEX dataset gives us realistic tasks, attachments, and rubrics. Our 
 
 ### Source task data
 
-The public APEX dataset gives one row per task in `train.csv` with:
+Right now the source task data comes from the public APEX dataset. It gives one row per task in `train.csv` with:
 
 - `Task ID`
 - `Domain`
@@ -54,6 +56,8 @@ This repo turns that into a richer structural task map with fields such as:
 
 Those fields come from `map-tasks` plus hand-authored metadata in `configs/task_metadata.csv`.
 
+We keep provenance separate from the task content itself. Today that provenance is Apex. Later, additional eval sources can publish into the same tracker and Neon schema with their own provenance records.
+
 ### Attempt-level data
 
 `raw_runs.jsonl` is the source of truth for completed eval attempts. Each row is one attempt and includes:
@@ -76,7 +80,7 @@ For tool-assisted runs, we also record:
 
 ### Curated tracker data
 
-The tracker has four important layers:
+The tracker has five important layers:
 
 - `tracker/discovered_attempts.csv`
   - every discovered `tool_assisted_daytona` attempt
@@ -86,6 +90,8 @@ The tracker has four important layers:
   - discovered attempts filtered to promoted rows only
 - `tracker/master_tracker.csv`
   - one row per promoted `task_id x setup_id` rollup
+- `tracker/task_provenances.csv`
+  - one row per published task source / provenance record
 
 `tracker/master_tracker_overall.json` contains the overall rollup across promoted setups.
 
@@ -93,9 +99,12 @@ The tracker has four important layers:
 
 The Neon publisher writes curated data into the `evals` schema:
 
+- `evals.task_provenances`
 - `evals.task_setups`
 - `evals.promoted_attempts`
 - `evals.tracker_overview`
+
+`task_setups` and `promoted_attempts` now carry both `task_source` and `provenance_id`. For the tasks we are publishing today, that means `task_source = Apex` and a linked provenance row for the public `APEX-v1-extended` release.
 
 These tables are derived from promoted tracker rows, not from every experiment run in the repo.
 
@@ -103,7 +112,7 @@ These tables are derived from promoted tracker rows, not from every experiment r
 
 Each attempt follows the same broad flow:
 
-1. Load the APEX task and resolve its attachments.
+1. Load the task from its source dataset and resolve its attachments. Right now that source is Apex.
 2. Parse attachments with Reducto or reuse the parse cache.
 3. Build a local workspace containing:
    - task prompt
@@ -245,7 +254,7 @@ The key idea is simple:
 
 - `discovered_attempts` is the experiment log
 - `promotions.csv` is the editorial layer
-- `master_tracker` and Neon are the published view
+- `master_tracker`, `task_provenances`, and Neon are the published view
 
 ## What We Publish
 

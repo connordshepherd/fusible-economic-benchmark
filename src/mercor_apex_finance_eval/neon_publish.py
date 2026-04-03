@@ -10,6 +10,8 @@ from typing import Any
 import psycopg
 from psycopg import sql
 
+from .provenance import TASK_PROVENANCE_HEADERS, build_task_provenance_rows
+
 
 DATABASE_URL_ENV_ORDER = [
     "DATABASE_URL_UNPOOLED",
@@ -19,10 +21,14 @@ DATABASE_URL_ENV_ORDER = [
     "POSTGRES_PRISMA_URL",
 ]
 
+TASK_PROVENANCE_COLUMNS = list(TASK_PROVENANCE_HEADERS)
+
 TASK_SETUP_COLUMNS = [
     "setup_id",
     "task_id",
     "domain",
+    "task_source",
+    "provenance_id",
     "job",
     "task_description",
     "success_criteria",
@@ -82,6 +88,8 @@ PROMOTED_ATTEMPT_COLUMNS = [
     "task_id",
     "run_index",
     "domain",
+    "task_source",
+    "provenance_id",
     "job",
     "task_description",
     "success_criteria",
@@ -219,10 +227,33 @@ def _ensure_schema(conn: psycopg.Connection[Any], *, schema: str) -> None:
         cur.execute(
             sql.SQL(
                 """
+                CREATE TABLE IF NOT EXISTS {}.task_provenances (
+                    provenance_id text PRIMARY KEY,
+                    task_source text NOT NULL,
+                    source_type text NOT NULL,
+                    source_provider text,
+                    dataset_name text,
+                    dataset_version text,
+                    dataset_split text,
+                    access_level text,
+                    source_reference text,
+                    source_url text,
+                    notes text,
+                    updated_at timestamptz NOT NULL DEFAULT now()
+                )
+                """
+            ).format(schema_ident)
+        )
+
+        cur.execute(
+            sql.SQL(
+                """
                 CREATE TABLE IF NOT EXISTS {}.task_setups (
                     task_id text NOT NULL,
                     setup_id text NOT NULL,
                     domain text NOT NULL,
+                    task_source text NOT NULL,
+                    provenance_id text NOT NULL REFERENCES {}.task_provenances (provenance_id),
                     job text,
                     task_description text NOT NULL,
                     success_criteria text,
@@ -271,7 +302,7 @@ def _ensure_schema(conn: psycopg.Connection[Any], *, schema: str) -> None:
                     PRIMARY KEY (task_id, setup_id)
                 )
                 """
-            ).format(schema_ident)
+            ).format(schema_ident, schema_ident)
         )
 
         cur.execute(
@@ -290,6 +321,8 @@ def _ensure_schema(conn: psycopg.Connection[Any], *, schema: str) -> None:
                     task_id text NOT NULL,
                     run_index integer NOT NULL,
                     domain text NOT NULL,
+                    task_source text NOT NULL,
+                    provenance_id text NOT NULL REFERENCES {}.task_provenances (provenance_id),
                     job text,
                     task_description text NOT NULL,
                     success_criteria text,
@@ -339,7 +372,7 @@ def _ensure_schema(conn: psycopg.Connection[Any], *, schema: str) -> None:
                     updated_at timestamptz NOT NULL DEFAULT now()
                 )
                 """
-            ).format(schema_ident)
+            ).format(schema_ident, schema_ident)
         )
 
         cur.execute(
@@ -362,12 +395,27 @@ def _ensure_schema(conn: psycopg.Connection[Any], *, schema: str) -> None:
         )
 
         cur.execute(
+            sql.SQL(
+                "CREATE INDEX IF NOT EXISTS task_provenances_task_source_idx ON {}.task_provenances (task_source)"
+            ).format(schema_ident)
+        )
+        cur.execute(
             sql.SQL("CREATE INDEX IF NOT EXISTS task_setups_task_id_idx ON {}.task_setups (task_id)").format(schema_ident)
+        )
+        cur.execute(
+            sql.SQL("CREATE INDEX IF NOT EXISTS task_setups_provenance_id_idx ON {}.task_setups (provenance_id)").format(
+                schema_ident
+            )
         )
         cur.execute(
             sql.SQL("CREATE INDEX IF NOT EXISTS promoted_attempts_task_id_idx ON {}.promoted_attempts (task_id)").format(
                 schema_ident
             )
+        )
+        cur.execute(
+            sql.SQL(
+                "CREATE INDEX IF NOT EXISTS promoted_attempts_provenance_id_idx ON {}.promoted_attempts (provenance_id)"
+            ).format(schema_ident)
         )
         cur.execute(
             sql.SQL("CREATE INDEX IF NOT EXISTS promoted_attempts_setup_id_idx ON {}.promoted_attempts (setup_id)").format(
@@ -376,17 +424,46 @@ def _ensure_schema(conn: psycopg.Connection[Any], *, schema: str) -> None:
         )
 
 
-def _load_publish_payload(tracker_dir: Path) -> tuple[list[tuple[Any, ...]], list[tuple[Any, ...]], tuple[Any, ...]]:
+def _load_provenance_rows(tracker_dir: Path, *, task_setup_rows: list[dict[str, str]], promoted_rows: list[dict[str, str]]) -> list[dict[str, str]]:
+    task_provenances_path = tracker_dir / "task_provenances.csv"
+    if task_provenances_path.exists():
+        return _read_csv(task_provenances_path)
+    return build_task_provenance_rows(task_setup_rows + promoted_rows)
+
+
+def _load_publish_payload(
+    tracker_dir: Path,
+) -> tuple[list[tuple[Any, ...]], list[tuple[Any, ...]], list[tuple[Any, ...]], tuple[Any, ...]]:
     tracker_dir = tracker_dir.resolve()
     task_setup_rows = _read_csv(tracker_dir / "master_tracker.csv")
     promoted_rows = _read_csv(tracker_dir / "promoted_attempts.csv")
+    provenance_rows = _load_provenance_rows(tracker_dir, task_setup_rows=task_setup_rows, promoted_rows=promoted_rows)
     overall = _read_overall(tracker_dir / "master_tracker_overall.json")
+
+    provenance_values = [
+        (
+            row["provenance_id"],
+            row["task_source"],
+            row["source_type"],
+            _text(row.get("source_provider")),
+            _text(row.get("dataset_name")),
+            _text(row.get("dataset_version")),
+            _text(row.get("dataset_split")),
+            _text(row.get("access_level")),
+            _text(row.get("source_reference")),
+            _text(row.get("source_url")),
+            _text(row.get("notes")),
+        )
+        for row in provenance_rows
+    ]
 
     task_setup_values = [
         (
             row["setup_id"],
             row["task_id"],
             row["domain"],
+            row["task_source"],
+            row["provenance_id"],
             _text(row["job"]),
             row["task_description"],
             _text(row["success_criteria"]),
@@ -449,6 +526,8 @@ def _load_publish_payload(tracker_dir: Path) -> tuple[list[tuple[Any, ...]], lis
             row["task_id"],
             _int(row["run_index"]) or 0,
             row["domain"],
+            row["task_source"],
+            row["provenance_id"],
             _text(row["job"]),
             row["task_description"],
             _text(row["success_criteria"]),
@@ -511,7 +590,7 @@ def _load_publish_payload(tracker_dir: Path) -> tuple[list[tuple[Any, ...]], lis
         float(overall.get("mean_expected_net_base_usd_per_attempt", 0.0) or 0.0),
     )
 
-    return task_setup_values, promoted_values, overview_value
+    return provenance_values, task_setup_values, promoted_values, overview_value
 
 
 def publish_tracker_to_postgres(
@@ -522,7 +601,7 @@ def publish_tracker_to_postgres(
 ) -> dict[str, Any]:
     tracker_dir = Path(tracker_dir).resolve()
     dsn = resolve_database_url(database_url)
-    task_setup_values, promoted_values, overview_value = _load_publish_payload(tracker_dir)
+    provenance_values, task_setup_values, promoted_values, overview_value = _load_publish_payload(tracker_dir)
 
     with psycopg.connect(dsn) as conn:
         with conn.cursor() as cur:
@@ -535,11 +614,24 @@ def publish_tracker_to_postgres(
                     DROP TABLE IF EXISTS {}.promoted_attempts;
                     DROP TABLE IF EXISTS {}.task_setups;
                     DROP TABLE IF EXISTS {}.tracker_overview;
+                    DROP TABLE IF EXISTS {}.task_provenances;
                     """
-                ).format(sql.Identifier(schema), sql.Identifier(schema), sql.Identifier(schema))
+                ).format(
+                    sql.Identifier(schema),
+                    sql.Identifier(schema),
+                    sql.Identifier(schema),
+                    sql.Identifier(schema),
+                )
             )
         _ensure_schema(conn, schema=schema)
         with conn.cursor() as cur:
+            _insert_rows(
+                cur,
+                schema=schema,
+                table="task_provenances",
+                columns=TASK_PROVENANCE_COLUMNS,
+                rows=provenance_values,
+            )
             _insert_rows(
                 cur,
                 schema=schema,
@@ -571,6 +663,7 @@ def publish_tracker_to_postgres(
     return {
         "database_url_env_used": next((key for key in DATABASE_URL_ENV_ORDER if os.getenv(key) and os.getenv(key) == dsn), "explicit"),
         "schema": schema,
+        "task_provenances": len(provenance_values),
         "task_setups": len(task_setup_values),
         "promoted_attempts": len(promoted_values),
         "tracker_dir": str(tracker_dir),

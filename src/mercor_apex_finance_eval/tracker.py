@@ -9,6 +9,7 @@ from typing import Any
 
 from .dataset import load_tasks
 from .pricing import openai_cost_usd, openai_price_book_id
+from .provenance import TASK_PROVENANCE_HEADERS, build_task_provenance_rows, infer_task_provenance
 from .runtime_metrics import infer_generation_steps_used, infer_tools_used, tools_used_text, union_tools
 from .task_map import build_task_map_rows
 from .utils import ensure_dir, read_jsonl, utc_now_iso, write_json
@@ -38,6 +39,8 @@ DISCOVERED_ATTEMPT_HEADERS = [
     "task_id",
     "run_index",
     "domain",
+    "task_source",
+    "provenance_id",
     "job",
     "task_description",
     "success_criteria",
@@ -91,6 +94,8 @@ PROMOTED_ATTEMPT_HEADERS = list(DISCOVERED_ATTEMPT_HEADERS)
 MASTER_TRACKER_HEADERS = [
     "task_id",
     "domain",
+    "task_source",
+    "provenance_id",
     "job",
     "task_description",
     "success_criteria",
@@ -373,6 +378,7 @@ def _normalize_attempt_record(
     agent_budget = f"steps={int(agent_config.get('max_steps', 0) or 0)},tools={int(agent_config.get('max_tool_calls', 0) or 0)}"
     generation_steps_used = infer_generation_steps_used(record)
     tools_used = infer_tools_used(record)
+    task_provenance = infer_task_provenance(manifest_config.get("dataset_dir"))
     task_description = str(
         record.get("task_description")
         or task_metadata.get("task_description")
@@ -395,6 +401,8 @@ def _normalize_attempt_record(
         "task_id": task_id,
         "run_index": run_index,
         "domain": record.get("domain", ""),
+        "task_source": task_provenance["task_source"],
+        "provenance_id": task_provenance["provenance_id"],
         "job": job,
         "task_description": task_description,
         "success_criteria": success_criteria,
@@ -515,6 +523,8 @@ def summarize_promoted_attempts(rows: list[dict[str, Any]]) -> tuple[list[dict[s
             {
                 "task_id": int(example["task_id"]),
                 "domain": example["domain"],
+                "task_source": example["task_source"],
+                "provenance_id": example["provenance_id"],
                 "job": example["job"],
                 "task_description": example["task_description"],
                 "success_criteria": example["success_criteria"],
@@ -657,6 +667,8 @@ def rebuild_tracker(
     _write_csv(tracker_dir / "promoted_attempts.csv", PROMOTED_ATTEMPT_HEADERS, promoted_rows)
 
     master_rows, overall = summarize_promoted_attempts(promoted_rows)
+    provenance_rows = build_task_provenance_rows(promoted_rows)
+    _write_csv(tracker_dir / "task_provenances.csv", TASK_PROVENANCE_HEADERS, provenance_rows)
     _write_csv(tracker_dir / "master_tracker.csv", MASTER_TRACKER_HEADERS, master_rows)
     write_json(tracker_dir / "master_tracker_overall.json", overall)
     _write_master_report(tracker_dir / "master_tracker.md", master_rows, overall)

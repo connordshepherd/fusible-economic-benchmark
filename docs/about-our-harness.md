@@ -13,6 +13,8 @@ It gets:
 
 That is enough to support realistic document work, spreadsheet-style analysis, and light code-assisted reasoning without giving the model unrestricted system access.
 
+The execution surface is task-source agnostic. Right now the tasks we feed into it come from the public Apex release, and we expect to run additional eval sources through the same harness later.
+
 ## What The Agent Can See
 
 Before generation starts, the harness builds a workspace that includes:

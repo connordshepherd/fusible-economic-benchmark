@@ -2,6 +2,7 @@ import csv
 import json
 from pathlib import Path
 
+from mercor_apex_finance_eval.provenance import APEX_PUBLIC_V1_EXTENDED_PROVENANCE_ID
 from mercor_apex_finance_eval.tracker import promote_run, rebuild_tracker
 
 
@@ -60,7 +61,7 @@ def test_tracker_promotions_and_master_rollups_use_current_price_book(tmp_path):
     run_dir = outputs_root / "legal_medium"
     tracker_dir = tmp_path / "tracker"
     price_book_path = tmp_path / "openai_pricing.json"
-    dataset_dir = tmp_path / "dataset"
+    dataset_dir = tmp_path / "APEX-v1-extended"
     task_metadata_path = tmp_path / "task_metadata.csv"
     prompt = "Draft a legal opinion about the Florida diminished value dispute."
     attachment_bytes = b"%PDF-1.4 sample"
@@ -187,6 +188,8 @@ def test_tracker_promotions_and_master_rollups_use_current_price_book(tmp_path):
     assert discovered_rows[0]["judge_reasoning_effort"] == "low"
     assert discovered_rows[0]["price_book_id_current"] == "test_prices_v1"
     assert discovered_rows[0]["current_total_cost_usd"] == "0.825"
+    assert discovered_rows[0]["task_source"] == "Apex"
+    assert discovered_rows[0]["provenance_id"] == APEX_PUBLIC_V1_EXTENDED_PROVENANCE_ID
     assert discovered_rows[0]["job"] == authored_job
     assert discovered_rows[0]["task_description"] == authored_description
     assert discovered_rows[0]["success_criteria"] == authored_success_criteria
@@ -218,12 +221,32 @@ def test_tracker_promotions_and_master_rollups_use_current_price_book(tmp_path):
     assert master_rows[0]["pass_rate"] == "1.0"
     assert master_rows[0]["mean_total_cost_per_attempt_usd"] == "0.825"
     assert master_rows[0]["promotion_labels"] == "blog_candidate"
+    assert master_rows[0]["task_source"] == "Apex"
+    assert master_rows[0]["provenance_id"] == APEX_PUBLIC_V1_EXTENDED_PROVENANCE_ID
     assert master_rows[0]["job"] == authored_job
     assert master_rows[0]["task_description"] == authored_description
     assert master_rows[0]["success_criteria"] == authored_success_criteria
     assert master_rows[0]["attachment_total_bytes"] == str(len(attachment_bytes))
     assert master_rows[0]["mean_generation_steps_used"] == "17.0"
     assert master_rows[0]["tools_used"] == "read_file; find_in_files; write_file"
+
+    with (tracker_dir / "task_provenances.csv").open("r", encoding="utf-8", newline="") as handle:
+        provenance_rows = list(csv.DictReader(handle))
+    assert provenance_rows == [
+        {
+            "provenance_id": APEX_PUBLIC_V1_EXTENDED_PROVENANCE_ID,
+            "task_source": "Apex",
+            "source_type": "dataset",
+            "source_provider": "Mercor",
+            "dataset_name": "APEX-v1-extended",
+            "dataset_version": "v1-extended",
+            "dataset_split": "train",
+            "access_level": "public",
+            "source_reference": "mercor/APEX-v1-extended",
+            "source_url": "https://huggingface.co/datasets/mercor/APEX-v1-extended",
+            "notes": "Current task provenance is the public APEX-v1-extended release. Additional eval sources may be added later.",
+        }
+    ]
 
 
 def test_tracker_can_backfill_cached_generation_tokens_from_usage_summary(tmp_path):

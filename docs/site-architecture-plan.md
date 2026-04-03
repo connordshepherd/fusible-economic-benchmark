@@ -7,6 +7,8 @@ Stand up a public site that does two jobs:
 1. Publish the blog and project framing.
 2. Show a live tracker of promoted eval runs and rollups.
 
+Right now the task source is Apex. The data model should make that explicit without assuming Apex is the only source we will ever publish.
+
 The recommended split is:
 
 - `economic-evals` repo
@@ -70,11 +72,31 @@ Suggested content layout:
 
 - Source of truth: promoted tracker outputs in `economic-evals`
 - Publish step pushes promoted rows into Neon
+- Publish step also pushes explicit task provenance rows into Neon
 - Site reads from Neon, not from repo files
 
 ## Neon Shape
 
-I would start with a deliberately small schema:
+I would start with a deliberately small schema, but include explicit provenance so today’s Apex tasks and future non-Apex tasks can coexist cleanly:
+
+### `task_provenances`
+
+One row per task source / provenance record.
+
+Suggested columns:
+
+- `provenance_id text primary key`
+- `task_source text not null`
+- `source_type text not null`
+- `source_provider text`
+- `dataset_name text`
+- `dataset_version text`
+- `dataset_split text`
+- `access_level text`
+- `source_reference text`
+- `source_url text`
+- `notes text`
+- `updated_at timestamptz not null default now()`
 
 ### `task_setups`
 
@@ -84,6 +106,8 @@ Suggested columns:
 
 - `task_id text not null`
 - `domain text not null`
+- `task_source text not null`
+- `provenance_id text not null`
 - `setup_id text primary key`
 - `job text`
 - `task_description text not null`
@@ -133,6 +157,8 @@ Suggested columns:
 - `task_id text not null`
 - `run_index integer not null`
 - `domain text not null`
+- `task_source text not null`
+- `provenance_id text not null`
 - `status text not null`
 - `business_pass boolean not null`
 - `score_pct double precision not null`
@@ -198,6 +224,7 @@ apex-finance-eval publish-neon \
 ```
 
 5. Upsert:
+   - `task_provenances`
    - `promoted_attempts`
    - `task_setups`
    - `tracker_overview`
