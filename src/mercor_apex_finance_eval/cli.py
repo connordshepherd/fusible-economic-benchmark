@@ -204,6 +204,7 @@ def cmd_publish_neon(args: argparse.Namespace) -> int:
         schema=args.schema,
     )
     print(f"Published schema: {summary['schema']}")
+    print(f"Publish mode: {summary['publish_mode']}")
     print(f"Task provenances: {summary['task_provenances']}")
     print(f"Task setups: {summary['task_setups']}")
     print(f"Promoted attempts: {summary['promoted_attempts']}")
@@ -294,7 +295,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     rebuild_tracker_parser = subparsers.add_parser(
         "rebuild-tracker",
-        help="Rebuild the discovered-attempts catalog and promoted master tracker.",
+        help="Rebuild the discovered-attempts catalog and published master tracker.",
     )
     rebuild_tracker_parser.add_argument("--outputs-root", default="outputs")
     rebuild_tracker_parser.add_argument("--tracker-dir", default="tracker")
@@ -304,7 +305,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     promote = subparsers.add_parser(
         "promote-run",
-        help="Promote one or more completed attempts into the curated master tracker.",
+        help="Promote one or more completed attempts into the published master tracker.",
     )
     promote.add_argument("--output-dir", default=None)
     promote.add_argument("--run-jsonl", default=None)

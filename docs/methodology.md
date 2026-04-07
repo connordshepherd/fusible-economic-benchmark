@@ -12,7 +12,7 @@ The public APEX dataset gives us realistic tasks, attachments, and rubrics. Our 
 - explicit parsing cost capture
 - tool-assisted generation
 - consistent grading
-- a curated promotion workflow for publishing results
+- a manual promotion workflow for publishing results
 
 ## Scope
 
@@ -21,7 +21,7 @@ The public APEX dataset gives us realistic tasks, attachments, and rubrics. Our 
 - The published task rows currently come from Apex.
 - The tracker and database now carry explicit provenance so more eval sources can be added later without pretending everything is Apex forever.
 - The published tracker currently includes only `tool_assisted_daytona` attempts.
-- Not every run is published. Only promoted attempts flow into the curated tracker and Neon database.
+- Not every run is published. Only promoted attempts flow into the published tracker and Neon database.
 
 ## Data Shape
 
@@ -78,26 +78,27 @@ For tool-assisted runs, we also record:
 - workspace artifact paths
 - Daytona sandbox metadata when Python is invoked
 
-### Curated tracker data
+### Published tracker data
 
 The tracker has five important layers:
 
 - `tracker/discovered_attempts.csv`
   - every discovered `tool_assisted_daytona` attempt
 - `tracker/promotions.csv`
-  - the manual promotion registry
+  - the manual publication registry
 - `tracker/promoted_attempts.csv`
-  - discovered attempts filtered to promoted rows only
+  - promoted attempts for published setups, including failures when those setups are published
 - `tracker/master_tracker.csv`
   - one row per promoted `task_id x setup_id` rollup
 - `tracker/task_provenances.csv`
   - one row per published task source / provenance record
 
 `tracker/master_tracker_overall.json` contains the overall rollup across promoted setups.
+Promotion is typically done at the setup or batch level, not by cherry-picking only the winning attempts from a setup.
 
 ### Published database shape
 
-The Neon publisher writes curated data into the `evals` schema:
+The Neon publisher writes published tracker data into the `evals` schema:
 
 - `evals.task_provenances`
 - `evals.task_setups`
@@ -107,6 +108,8 @@ The Neon publisher writes curated data into the `evals` schema:
 `task_setups` and `promoted_attempts` now carry both `task_source` and `provenance_id`. For the tasks we are publishing today, that means `task_source = Apex` and a linked provenance row for the public `APEX-v1-extended` release.
 
 These tables are derived from promoted tracker rows, not from every experiment run in the repo.
+
+The publisher currently uses a snapshot-refresh pattern rather than row-by-row incremental sync. It preserves the managed tables, clears the published rows inside one transaction, and reloads the latest published snapshot.
 
 ## Harness Execution
 
@@ -219,9 +222,9 @@ The intended workflow is:
 
 1. run experiments
 2. inspect the outputs and failure modes
-3. promote only the attempts you want included in the published record
+3. promote the task/setup batches you want included in the published record, usually including all attempts for those setups
 4. rebuild the tracker
-5. publish the curated tracker to Neon
+5. publish the tracker to Neon
 
 Key commands:
 
@@ -253,16 +256,19 @@ apex-finance-eval publish-neon \
 The key idea is simple:
 
 - `discovered_attempts` is the experiment log
-- `promotions.csv` is the editorial layer
+- `promotions.csv` is the publication registry
 - `master_tracker`, `task_provenances`, and Neon are the published view
+
+For published setups, failures should normally remain visible alongside successes. Promoting only successful attempts is a special-case presentation choice and should be labeled as such rather than treated as the default tracker policy.
 
 ## What We Publish
 
 The public-facing chart should be interpreted as:
 
-- a curated set of promoted task/setup results
+- a published subset of promoted task/setup batches
+- with failed and successful attempts both visible for the setups we choose to publish
 - using the current price book
 - with explicit reasoning mode
 - with explicit tool usage and step counts where available
 
-It is not meant to imply that every internal experiment is equally publication-worthy.
+It is not meant to imply that every internal experiment appears in the public tracker, but it should preserve an honest pass/fail picture for the setups that do appear there.

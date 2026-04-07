@@ -219,6 +219,29 @@ def _insert_rows(
     )
 
 
+def _clear_publish_tables(
+    cur: psycopg.Cursor[Any],
+    *,
+    schema: str,
+) -> None:
+    cur.execute(
+        sql.SQL(
+            """
+            TRUNCATE TABLE
+                {}.promoted_attempts,
+                {}.task_setups,
+                {}.tracker_overview,
+                {}.task_provenances
+            """
+        ).format(
+            sql.Identifier(schema),
+            sql.Identifier(schema),
+            sql.Identifier(schema),
+            sql.Identifier(schema),
+        )
+    )
+
+
 def _ensure_schema(conn: psycopg.Connection[Any], *, schema: str) -> None:
     schema_ident = sql.Identifier(schema)
     with conn.cursor() as cur:
@@ -604,27 +627,9 @@ def publish_tracker_to_postgres(
     provenance_values, task_setup_values, promoted_values, overview_value = _load_publish_payload(tracker_dir)
 
     with psycopg.connect(dsn) as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(schema))
-            )
-            cur.execute(
-                sql.SQL(
-                    """
-                    DROP TABLE IF EXISTS {}.promoted_attempts;
-                    DROP TABLE IF EXISTS {}.task_setups;
-                    DROP TABLE IF EXISTS {}.tracker_overview;
-                    DROP TABLE IF EXISTS {}.task_provenances;
-                    """
-                ).format(
-                    sql.Identifier(schema),
-                    sql.Identifier(schema),
-                    sql.Identifier(schema),
-                    sql.Identifier(schema),
-                )
-            )
         _ensure_schema(conn, schema=schema)
         with conn.cursor() as cur:
+            _clear_publish_tables(cur, schema=schema)
             _insert_rows(
                 cur,
                 schema=schema,
@@ -663,6 +668,7 @@ def publish_tracker_to_postgres(
     return {
         "database_url_env_used": next((key for key in DATABASE_URL_ENV_ORDER if os.getenv(key) and os.getenv(key) == dsn), "explicit"),
         "schema": schema,
+        "publish_mode": "snapshot_refresh",
         "task_provenances": len(provenance_values),
         "task_setups": len(task_setup_values),
         "promoted_attempts": len(promoted_values),

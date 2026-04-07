@@ -1,10 +1,10 @@
 {
-  "promoted_attempts": 36,
-  "tracked_task_setups": 12,
-  "business_passes": 2,
-  "overall_pass_rate": 0.055556,
-  "mean_total_cost_per_attempt_usd": 0.731875,
-  "mean_generation_steps_used": 18.3889,
-  "mean_expected_net_base_usd_per_attempt": 28.434791,
+  "promoted_attempts": 66,
+  "tracked_task_setups": 22,
+  "business_passes": 8,
+  "overall_pass_rate": 0.121212,
+  "mean_total_cost_per_attempt_usd": 0.669076,
+  "mean_generation_steps_used": 16.2424,
+  "mean_expected_net_base_usd_per_attempt": 62.967288,
   "tools_used": "read_file; find_in_files; write_file; list_files; python_exec; read_best_matches"
 }

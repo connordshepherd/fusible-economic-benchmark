@@ -311,7 +311,7 @@ The public APEX source gives one task row with prompt, rubric JSON, and attachme
 - tools used
 - runtime artifact paths
 
-### 3. Curated tracker data
+### 3. Published tracker data
 
 The tracker separates experiment logging from publication:
 
@@ -322,6 +322,7 @@ The tracker separates experiment logging from publication:
 - `tracker/master_tracker_overall.json`
 
 The published Neon schema is derived from promoted tracker rows only.
+Promotion decides which task/setup batches are included in the public tracker. For any setup we do publish, the default is to include all promoted attempts, including failures, so the published pass rate stays honest.
 
 ## How Daytona works here
 
@@ -366,9 +367,9 @@ We do not publish every experiment run. The intended workflow is:
 
 1. run evals
 2. inspect `raw_runs.jsonl`, summaries, and tool traces
-3. promote only the attempts you want to count publicly
-4. rebuild the curated tracker
-5. publish the curated tracker to Neon
+3. promote the task/setup batches you want in the public tracker, usually including all attempts for those setups
+4. rebuild the published tracker
+5. publish the tracker to Neon
 
 The main commands are:
 
@@ -397,9 +398,13 @@ apex-finance-eval publish-neon \
   --schema evals
 ```
 
-`discovered_attempts` is the experiment log. `promotions.csv` is the editorial layer. `master_tracker` and Neon are the published view.
+`discovered_attempts` is the experiment log. `promotions.csv` is the publication registry. `master_tracker` and Neon are the published view.
+
+By default, promotion should preserve failures as well as successes for any published setup. Promoting only winning attempts is appropriate only for explicitly labeled spotlights, not for headline pass-rate reporting.
 
 Published task/setup and attempt rows are currently tagged with `task_source = Apex` and linked to a provenance record for the public `APEX-v1-extended` release. That keeps today’s source explicit while leaving room for additional eval sources later.
+
+The Neon publisher uses a lightweight snapshot refresh. It keeps the managed tables and indexes in place, clears their rows transactionally, and reloads the latest published snapshot instead of dropping and recreating the schema objects each time.
 
 ## What counts as success
 
