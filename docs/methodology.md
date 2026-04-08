@@ -71,6 +71,8 @@ We keep provenance separate from the task content itself. Today that provenance 
 - prompt fingerprints
 - runtime details such as tool traces and usage summaries
 
+In-progress work appears under `generation_artifacts` first. `raw_runs.jsonl` only appends once an attempt has completed, which makes resume behavior easier to reason about after crashes or restarts.
+
 For tool-assisted runs, we also record:
 
 - generation steps used
@@ -104,6 +106,16 @@ The Neon publisher writes published tracker data into the `evals` schema:
 - `evals.task_setups`
 - `evals.promoted_attempts`
 - `evals.tracker_overview`
+
+Key field meanings:
+
+- `task_description` is the human-readable summary of what the task actually is.
+- `success_criteria` is the human-readable summary of how grading works.
+- `business_pass` is the binary publish-facing success flag for an attempt.
+- `pass_rate` is computed over promoted attempts for a published setup.
+- `promotion_label` identifies the setup or batch label used during promotion.
+- `headline` is a presentation flag for spotlight rows, not a success filter.
+- `score_summary` and full `response_text` remain local run artifacts and are not currently published to Neon.
 
 `task_setups` and `promoted_attempts` now carry both `task_source` and `provenance_id`. For the tasks we are publishing today, that means `task_source = Apex` and a linked provenance row for the public `APEX-v1-extended` release.
 
@@ -247,11 +259,15 @@ apex-finance-eval promote-run \
   --task-metadata-csv configs/task_metadata.csv
 ```
 
+`--label` should identify the setup or batch being published. `--headline` marks spotlight rows for presentation and does not change pass-rate accounting.
+
 ```bash
 apex-finance-eval publish-neon \
   --tracker-dir tracker \
   --schema evals
 ```
+
+`publish-neon` reads `DATABASE_URL_UNPOOLED` from `.env` or `.env.local`.
 
 The key idea is simple:
 

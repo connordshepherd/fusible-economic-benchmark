@@ -324,6 +324,13 @@ The tracker separates experiment logging from publication:
 The published Neon schema is derived from promoted tracker rows only.
 Promotion decides which task/setup batches are included in the public tracker. For any setup we do publish, the default is to include all promoted attempts, including failures, so the published pass rate stays honest.
 
+Key published field semantics:
+
+- `task_description` is the human-readable summary of what the task is asking for.
+- `success_criteria` is the human-readable summary of what the grader rewards.
+- `business_pass` is the binary outcome used for published pass-rate accounting.
+- detailed `score_summary` payloads and full `response_text` remain local run artifacts in `raw_runs.jsonl` when enabled; they are not currently published to Neon.
+
 ## How Daytona works here
 
 Daytona is only the backend for `python_exec`.
@@ -392,11 +399,16 @@ apex-finance-eval promote-run \
   --task-metadata-csv configs/task_metadata.csv
 ```
 
+`--label` should identify the published setup or batch, for example `legal_remaining9_xhigh_20260407`.
+`--headline` is a presentation flag for spotlight rows; it should not be used to exclude failures from headline pass-rate reporting.
+
 ```bash
 apex-finance-eval publish-neon \
   --tracker-dir tracker \
   --schema evals
 ```
+
+`publish-neon` reads `DATABASE_URL_UNPOOLED` from `.env` or `.env.local` and snapshot-refreshes the managed `evals` tables from the current tracker state.
 
 `discovered_attempts` is the experiment log. `promotions.csv` is the publication registry. `master_tracker` and Neon are the published view.
 
@@ -428,7 +440,7 @@ Main files:
   The actual task set used for the run.
 
 - `raw_runs.jsonl`  
-  One JSON record per attempt.
+  One JSON record per completed attempt. In-progress work appears in `generation_artifacts` first and is appended here only after the attempt completes.
 
 - `task_summary.csv`  
   One row per task with pass rate and cost metrics.
@@ -438,6 +450,15 @@ Main files:
 
 - `report.md`  
   A quick human-readable report.
+
+- `generation_artifacts/`  
+  Per-attempt runtime traces, tool traces, prompt files, workspace manifests, and local workspace/output artifacts.
+
+- `run.log`  
+  Background launcher log for long-running local batches.
+
+- `run.pid`  
+  PID file for a detached local batch process.
 
 ## The metrics this repo computes
 

@@ -195,16 +195,18 @@ Suggested columns:
 
 ### `tracker_overview`
 
-Optional single-row table.
+Single-row table keyed by a boolean singleton.
 
 Suggested columns:
 
-- `id boolean primary key default true`
+- `singleton_key boolean primary key`
 - `promoted_attempts integer not null`
 - `tracked_task_setups integer not null`
 - `business_passes integer not null`
 - `overall_pass_rate double precision not null`
 - `mean_total_cost_per_attempt_usd double precision not null`
+- `mean_generation_steps_used double precision`
+- `tools_used text`
 - `mean_expected_net_base_usd_per_attempt double precision not null`
 - `updated_at timestamptz not null default now()`
 
@@ -214,20 +216,23 @@ Recommended approach:
 
 1. Run evals in `economic-evals`.
 2. Rebuild tracker.
-3. Promote selected runs.
+3. Promote the setup batches you want in the public tracker, typically including all attempts for those setups.
 4. Run a publish command such as:
 
 ```bash
 apex-finance-eval publish-neon \
   --tracker-dir tracker \
-  --database-url "$DATABASE_URL"
+  --schema evals
 ```
 
-5. Upsert:
+5. Load database credentials from `DATABASE_URL_UNPOOLED` in `.env` or `.env.local`.
+6. Snapshot-refresh:
    - `task_provenances`
    - `promoted_attempts`
    - `task_setups`
    - `tracker_overview`
+
+`promotion_label` should identify the published batch or setup grouping. `headline` is a presentation flag for spotlight rows, not a way to exclude failures from pass-rate calculations.
 
 ## Vercel / Neon Runtime Notes
 

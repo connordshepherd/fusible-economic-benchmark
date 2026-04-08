@@ -2,12 +2,12 @@
 
 ## Overall
 
-- Tracked task setups: **22**
-- Promoted attempts: **66**
-- Business passes: **8**
-- Overall pass rate: **0.1212**
-- Mean total cost per attempt: **$0.669076**
-- Mean generation steps per attempt: **16.24**
+- Tracked task setups: **31**
+- Promoted attempts: **93**
+- Business passes: **14**
+- Overall pass rate: **0.1505**
+- Mean total cost per attempt: **$0.639776**
+- Mean generation steps per attempt: **15.03**
 - Tools used: **read_file; find_in_files; write_file; list_files; python_exec; read_best_matches**
 
 ## Task Setups
@@ -34,5 +34,14 @@
 | 1230 | gpt-5.4 | xhigh | 3 | 15.67 | 0.0000 | — | $525.00 | list_files; read_file; find_in_files; write_file |
 | 1246 | gpt-5.4 | xhigh | 3 | 22.00 | 0.0000 | — | $525.00 | list_files; read_file; read_best_matches; find_in_files; write_file |
 | 1318 | gpt-5.4 | xhigh | 3 | 9.33 | 0.0000 | — | $525.00 | list_files; read_file; find_in_files; python_exec; write_file |
+| 1319 | gpt-5.4 | xhigh | 3 | 5.33 | 0.3333 | 1.33124 | $525.00 | list_files; read_file; python_exec |
+| 1323 | gpt-5.4 | xhigh | 3 | 7.67 | 0.3333 | 1.605214 | $525.00 | read_file; list_files; python_exec; write_file; find_in_files |
+| 1346 | gpt-5.4 | xhigh | 3 | 8.00 | 0.0000 | — | $525.00 | list_files; read_file; python_exec; write_file; read_best_matches |
+| 1361 | gpt-5.4 | xhigh | 3 | 25.67 | 0.3333 | 4.507479 | $525.00 | list_files; read_best_matches; find_in_files; read_file; write_file |
+| 1366 | gpt-5.4 | xhigh | 3 | 25.33 | 1.0000 | 0.937836 | $525.00 | list_files; read_file; read_best_matches; find_in_files; python_exec; write_file |
+| 1367 | gpt-5.4 | xhigh | 3 | 0.00 | 0.0000 | — | $525.00 | — |
 | 1371 | gpt-5.4 | medium | 3 | 15.00 | 0.0000 | — | $525.00 | list_files; read_file; read_best_matches; find_in_files; write_file |
 | 1371 | gpt-5.4 | xhigh | 3 | 23.00 | 0.0000 | — | $525.00 | list_files; read_file; read_best_matches; find_in_files; write_file |
+| 1382 | gpt-5.4 | xhigh | 3 | 16.33 | 0.0000 | — | $525.00 | list_files; read_file; find_in_files; read_best_matches; write_file |
+| 1398 | gpt-5.4 | xhigh | 3 | 8.33 | 0.0000 | — | $525.00 | list_files; read_file; write_file; python_exec |
+| 1757 | gpt-5.4 | xhigh | 3 | 12.00 | 0.0000 | — | $525.00 | list_files; read_file; read_best_matches; write_file; find_in_files |
